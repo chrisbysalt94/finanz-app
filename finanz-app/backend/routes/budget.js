@@ -214,13 +214,19 @@ router.get('/computed', (req, res) => {
   });
 });
 
-// Helper: parse target_account like "Zusammen -> Revolut Wohnung"
+// Helper: parse target_account like "Zusammen -> Revolut Wohnung" or "Revolut Wohnung"
 function parseTargetAccount(target) {
   if (!target) return { bank: null, pocket: null, type: null };
-  const match = target.match(/^(Zusammen|Getrennt)\s*->\s*(.+)$/i);
-  if (!match) return { bank: null, pocket: null, type: null };
-  const type = match[1].toLowerCase();
-  const dest = match[2].trim();
+
+  let type = 'zusammen';
+  let dest = target.trim();
+
+  // Check for "Zusammen/Getrennt -> ..." prefix
+  const match = dest.match(/^(Zusammen|Getrennt)\s*->\s*(.+)$/i);
+  if (match) {
+    type = match[1].toLowerCase();
+    dest = match[2].trim();
+  }
 
   if (/^Revolute?\b/i.test(dest)) {
     const pocket = dest.replace(/^Revolute?\s*/i, '').trim() || null;
@@ -232,7 +238,9 @@ function parseTargetAccount(target) {
   if (/^MVB/i.test(dest)) {
     return { bank: 'MVB', pocket: null, type };
   }
-  return { bank: dest, pocket: null, type };
+  // Unknown bank name — only treat as valid if we recognized a known prefix or bank
+  if (match) return { bank: dest, pocket: null, type };
+  return { bank: null, pocket: null, type: null };
 }
 
 export default router;
