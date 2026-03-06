@@ -1,18 +1,23 @@
 ARG BUILD_FROM=ghcr.io/hassio-addons/base:16.3.2
+
+# Stage 1: Build native modules in Node.js Alpine
+FROM node:20-alpine AS builder
+
+RUN apk add --no-cache python3 make g++
+
+WORKDIR /app/backend
+COPY backend/package.json backend/package-lock.json ./
+RUN npm ci --omit=dev
+
+# Stage 2: Runtime on HA base image
 FROM ${BUILD_FROM}
 
-# Node.js + build tools for better-sqlite3 native compilation
-RUN apk add --no-cache nodejs npm python3 make g++
+RUN apk add --no-cache nodejs
 
 WORKDIR /app
 
-# Install dependencies first (cached layer)
-COPY backend/package.json backend/package-lock.json ./backend/
-RUN cd backend && npm ci --omit=dev
-
-# Remove build tools, keep runtime libs
-RUN apk del python3 make g++ && \
-    apk add --no-cache libstdc++
+# Copy pre-built node_modules from builder
+COPY --from=builder /app/backend/node_modules ./backend/node_modules/
 
 # Copy application code
 COPY backend/ ./backend/
