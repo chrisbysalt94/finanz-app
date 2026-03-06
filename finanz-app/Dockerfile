@@ -23,8 +23,6 @@ COPY --from=builder /app/backend/node_modules ./backend/node_modules/
 COPY backend/ ./backend/
 COPY frontend/ ./frontend/
 
-# Entrypoint
-COPY run.sh /
-RUN chmod a+x /run.sh
-
-CMD ["/run.sh"]
+# Register as s6-overlay service
+COPY run.sh /etc/services.d/finanz-app/run
+RUN chmod a+x /etc/services.d/finanz-app/run
