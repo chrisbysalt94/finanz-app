@@ -21,16 +21,18 @@ const SettingsView = {
       const sectionLabels = {
         income: 'Einkommen', deductions: 'Abzüge',
         fixed: 'Fixkosten', auto: 'Auto', contracts: 'Verträge', housing: 'Wohnung',
+        savings: 'Rücklagen', variable: 'Variabel',
       };
       const sectionIcons = {
         income: '\u{1F4B0}', deductions: '\u{1F4E4}',
         fixed: '\u{1F4CB}', auto: '\u{1F697}', contracts: '\u{1F4DD}', housing: '\u{1F3E0}',
+        savings: '\u{1F3AF}', variable: '\u{1F4B8}',
       };
 
       const sections = {};
       for (const item of items) {
         const sec = item.section || 'fixed';
-        if (sec === 'income' || sec === 'savings') continue;
+        if (sec === 'income') continue;
 
         // Filter by search query
         if (query) {
