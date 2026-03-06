@@ -187,17 +187,7 @@ router.get('/computed', (req, res) => {
     const parsed = parseTargetAccount(item.target_account);
     if (!parsed.bank || parsed.bank !== 'Revolut') continue;
     const pocket = parsed.pocket || item.category_name;
-
-    if (parsed.type === 'getrennt') {
-      for (const p of persons) {
-        const amount = item.splits[p.name] || 0;
-        if (amount <= 0) continue;
-        const key = `${pocket} ${p.name}`;
-        pocketTotals[key] = (pocketTotals[key] || 0) + amount;
-      }
-    } else {
-      pocketTotals[pocket] = (pocketTotals[pocket] || 0) + item.amount_total;
-    }
+    pocketTotals[pocket] = (pocketTotals[pocket] || 0) + item.amount_total;
   }
 
   const computedStandingOrders = Object.entries(pocketTotals).map(([category, amount]) => ({
@@ -214,33 +204,19 @@ router.get('/computed', (req, res) => {
   });
 });
 
-// Helper: parse target_account like "Zusammen -> Revolut Wohnung" or "Revolut Wohnung"
+// Helper: parse target_account like "Revolut Urlaub" or "TradeRepublic"
 function parseTargetAccount(target) {
-  if (!target) return { bank: null, pocket: null, type: null };
-
-  let type = 'zusammen';
-  let dest = target.trim();
-
-  // Check for "Zusammen/Getrennt -> ..." prefix
-  const match = dest.match(/^(Zusammen|Getrennt)\s*->\s*(.+)$/i);
-  if (match) {
-    type = match[1].toLowerCase();
-    dest = match[2].trim();
-  }
+  if (!target) return { bank: null, pocket: null };
+  const dest = target.trim();
 
   if (/^Revolute?\b/i.test(dest)) {
     const pocket = dest.replace(/^Revolute?\s*/i, '').trim() || null;
-    return { bank: 'Revolut', pocket, type };
+    return { bank: 'Revolut', pocket };
   }
   if (/^TradeRepublic/i.test(dest)) {
-    return { bank: 'TradeRepublic', pocket: null, type };
+    return { bank: 'TradeRepublic', pocket: null };
   }
-  if (/^MVB/i.test(dest)) {
-    return { bank: 'MVB', pocket: null, type };
-  }
-  // Unknown bank name — only treat as valid if we recognized a known prefix or bank
-  if (match) return { bank: dest, pocket: null, type };
-  return { bank: null, pocket: null, type: null };
+  return { bank: null, pocket: null };
 }
 
 export default router;

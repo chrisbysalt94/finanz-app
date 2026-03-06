@@ -19,18 +19,18 @@ const SettingsView = {
       const query = searchQuery.value.toLowerCase().trim();
 
       const sectionLabels = {
-        income: 'Einkommen', deductions: 'Abzüge', savings: 'Sparen',
+        income: 'Einkommen', deductions: 'Abzüge',
         fixed: 'Fixkosten', auto: 'Auto', contracts: 'Verträge', housing: 'Wohnung',
       };
       const sectionIcons = {
-        income: '\u{1F4B0}', deductions: '\u{1F4E4}', savings: '\u{1F3E6}',
+        income: '\u{1F4B0}', deductions: '\u{1F4E4}',
         fixed: '\u{1F4CB}', auto: '\u{1F697}', contracts: '\u{1F4DD}', housing: '\u{1F3E0}',
       };
 
       const sections = {};
       for (const item of items) {
         const sec = item.section || 'fixed';
-        if (sec === 'income') continue;
+        if (sec === 'income' || sec === 'savings') continue;
 
         // Filter by search query
         if (query) {
@@ -546,7 +546,7 @@ const SettingsView = {
             <div class="field-label">Zielkonto</div>
             <input class="setting-input" style="width:100%" type="text"
                    v-model="editingItem.target_account"
-                   placeholder="z.B. Zusammen -> Revolut">
+                   placeholder="z.B. Revolut Urlaub">
           </div>
 
           <div class="field-group mb-8">
@@ -637,7 +637,7 @@ const SettingsView = {
             <div class="field-label">Zielkonto</div>
             <input class="setting-input" style="width:100%;text-align:left" type="text"
                    v-model="newItem.target_account"
-                   placeholder="z.B. Zusammen -> Revolut">
+                   placeholder="z.B. Revolut Urlaub">
           </div>
 
           <!-- Notes -->
