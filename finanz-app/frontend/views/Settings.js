@@ -37,7 +37,7 @@ const SettingsView = {
     });
 
     async function updateIncome(personId, value) {
-      await fetch(`/api/persons/${personId}`, {
+      await fetch(`api/persons/${personId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ net_income: parseFloat(value) || 0 }),
@@ -47,7 +47,7 @@ const SettingsView = {
     }
 
     async function updateSecondIncome(personId, value) {
-      await fetch(`/api/persons/${personId}`, {
+      await fetch(`api/persons/${personId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ second_income: parseFloat(value) || 0 }),
@@ -57,7 +57,7 @@ const SettingsView = {
     }
 
     async function updateInvestment(personId, value) {
-      await fetch(`/api/persons/${personId}`, {
+      await fetch(`api/persons/${personId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ invest_amount: parseFloat(value) || 0 }),
@@ -75,7 +75,7 @@ const SettingsView = {
     }
 
     async function updateBudgetItem(item) {
-      await fetch(`/api/budget/${item.id}`, {
+      await fetch(`api/budget/${item.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

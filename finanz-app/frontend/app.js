@@ -17,7 +17,7 @@ const app = createApp({
 
     async function loadData() {
       try {
-        const data = await fetch('/api/budget/computed').then(r => r.json());
+        const data = await fetch('api/budget/computed').then(r => r.json());
         budgetData.value = data;
       } catch (err) {
         console.error('Failed to load data:', err);

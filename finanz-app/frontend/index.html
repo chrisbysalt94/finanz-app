@@ -6,10 +6,10 @@
   <meta name="theme-color" content="#ffffff">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <link rel="manifest" href="/manifest.json">
+  <link rel="manifest" href="manifest.json">
   <title>Finanz App</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%23007aff'/><text x='50' y='68' font-size='52' font-weight='bold' text-anchor='middle' fill='white'>€</text></svg>">
-  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <div id="app">
@@ -43,15 +43,15 @@
 
   <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
-  <script src="/views/Dashboard.js"></script>
-  <script src="/views/Transfers.js"></script>
-  <script src="/views/StandingOrders.js"></script>
-  <script src="/views/Settings.js"></script>
-  <script src="/app.js"></script>
+  <script src="views/Dashboard.js"></script>
+  <script src="views/Transfers.js"></script>
+  <script src="views/StandingOrders.js"></script>
+  <script src="views/Settings.js"></script>
+  <script src="app.js"></script>
 
   <script>
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js');
+      navigator.serviceWorker.register('sw.js');
     }
   </script>
 </body>
