@@ -113,11 +113,13 @@ router.get('/computed', (req, res) => {
     }
   }
 
-  // === Computed Transfers ===
+  // === Computed Transfers (with breakdown) ===
   const accounts = db.prepare('SELECT * FROM accounts').all();
   const transferMap = {};
+  const transferBreakdown = {};
   for (const p of persons) {
     transferMap[p.name] = {};
+    transferBreakdown[p.name] = {};
   }
 
   for (const item of computedItems) {
@@ -128,6 +130,11 @@ router.get('/computed', (req, res) => {
       const amount = item.splits[p.name] || 0;
       if (amount <= 0) continue;
       transferMap[p.name][parsed.bank] = (transferMap[p.name][parsed.bank] || 0) + amount;
+      if (!transferBreakdown[p.name][parsed.bank]) transferBreakdown[p.name][parsed.bank] = [];
+      transferBreakdown[p.name][parsed.bank].push({
+        category: item.category_name,
+        amount: Math.round(amount * 100) / 100,
+      });
     }
   }
 
@@ -135,6 +142,11 @@ router.get('/computed', (req, res) => {
   for (const p of persons) {
     if ((p.invest_amount || 0) > 0) {
       transferMap[p.name]['TradeRepublic'] = (transferMap[p.name]['TradeRepublic'] || 0) + p.invest_amount;
+      if (!transferBreakdown[p.name]['TradeRepublic']) transferBreakdown[p.name]['TradeRepublic'] = [];
+      transferBreakdown[p.name]['TradeRepublic'].push({
+        category: 'Investition',
+        amount: Math.round(p.invest_amount * 100) / 100,
+      });
     }
   }
 
@@ -150,6 +162,7 @@ router.get('/computed', (req, res) => {
         target_account: bank,
         amount: Math.round(amount * 100) / 100,
         iban: personalAcc?.iban || sharedAcc?.iban || null,
+        breakdown: (transferBreakdown[p.name][bank] || []).sort((a, b) => b.amount - a.amount),
       });
     }
   }
