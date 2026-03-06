@@ -1,6 +1,6 @@
 name: "Finanz App"
 description: "Haushaltsbudget-Planer für Paare mit gehaltsabhängiger Kostenaufteilung"
-version: "1.0.4"
+version: "1.0.5"
 slug: "finanz-app"
 url: "https://github.com/local/finanz-app"
 arch:
@@ -9,6 +9,7 @@ arch:
   - armv7
 startup: "application"
 boot: "auto"
+init: false
 ingress: true
 ingress_port: 8099
 panel_icon: "mdi:cash-multiple"
