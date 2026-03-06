@@ -137,8 +137,8 @@ router.get('/computed', (req, res) => {
       }
       continue;
     }
-    // Use pocket name (stripped of bank) for breakdown label, fallback to category name
-    const breakdownLabel = parsed.pocket || item.category_name;
+    // Always use the actual category name so the breakdown shows the real purpose
+    const breakdownLabel = item.category_name;
     for (const p of persons) {
       const amount = item.splits[p.name] || 0;
       if (amount <= 0) continue;
