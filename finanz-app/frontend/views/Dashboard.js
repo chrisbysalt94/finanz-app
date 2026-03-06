@@ -307,6 +307,13 @@ const DashboardView = {
       Laden...
     </div>
     <div v-else>
+      <!-- Total Income Header -->
+      <div v-if="summaryData" style="text-align:center;padding:20px 16px 8px">
+        <div style="font-size:12px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Gesamteinkommen</div>
+        <div style="font-size:32px;font-weight:800;letter-spacing:-0.5px">{{ fmt(summaryData.totalIncome) }}</div>
+        <div style="font-size:13px;color:var(--text-muted);margin-top:2px">{{ fmt(summaryData.totalIncome * 12) }} / Jahr</div>
+      </div>
+
       <!-- Summary Cards -->
       <div class="summary-cards" v-if="summaryData">
         <div class="summary-card card-chris">
@@ -397,8 +404,12 @@ const DashboardView = {
                 <td v-for="p in data.persons" :key="p.name"
                     :class="{ 'amount-zero': (row.splits[p.name] || 0) === 0 }">
                   {{ fmt(row.splits[p.name] || 0) }}
+                  <div style="font-size:10px;color:var(--text-muted);font-weight:400">{{ fmt((row.splits[p.name] || 0) * 12) }}</div>
                 </td>
-                <td>{{ fmt(row.amount) }}</td>
+                <td>
+                  {{ fmt(row.amount) }}
+                  <div style="font-size:10px;color:var(--text-muted);font-weight:400">{{ fmt(row.amount * 12) }}</div>
+                </td>
                 <td>{{ fmt(row.amount * 12) }}</td>
               </tr>
             </tbody>
