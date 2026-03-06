@@ -1,6 +1,6 @@
-ARG BUILD_FROM=ghcr.io/hassio-addons/base:16.3.2
+ARG BUILD_FROM=node:20-alpine
 
-# Stage 1: Build native modules in Node.js Alpine
+# Stage 1: Build native modules
 FROM node:20-alpine AS builder
 
 RUN apk add --no-cache python3 make g++
@@ -9,20 +9,18 @@ WORKDIR /app/backend
 COPY backend/package.json backend/package-lock.json ./
 RUN npm ci --omit=dev
 
-# Stage 2: Runtime on HA base image
+# Stage 2: Runtime
 FROM ${BUILD_FROM}
-
-RUN apk add --no-cache nodejs
 
 WORKDIR /app
 
-# Copy pre-built node_modules from builder
+# Copy pre-built node_modules
 COPY --from=builder /app/backend/node_modules ./backend/node_modules/
 
 # Copy application code
 COPY backend/ ./backend/
 COPY frontend/ ./frontend/
 
-# Register as s6-overlay service
-COPY run.sh /etc/services.d/finanz-app/run
-RUN chmod a+x /etc/services.d/finanz-app/run
+ENV DATA_PATH=/config/finanz-app
+
+CMD ["sh", "-c", "mkdir -p /config/finanz-app && exec node backend/server.js"]
