@@ -1,11 +1,8 @@
 ARG BUILD_FROM=ghcr.io/hassio-addons/base:16.3.2
 FROM ${BUILD_FROM}
 
-# Node.js runtime
-RUN apk add --no-cache nodejs npm
-
-# Build tools for better-sqlite3 native compilation
-RUN apk add --no-cache --virtual .build-deps python3 make g++
+# Node.js + build tools for better-sqlite3 native compilation
+RUN apk add --no-cache nodejs npm python3 make g++
 
 WORKDIR /app
 
@@ -13,8 +10,8 @@ WORKDIR /app
 COPY backend/package.json backend/package-lock.json ./backend/
 RUN cd backend && npm ci --omit=dev
 
-# Remove build tools, keep runtime lib
-RUN apk del .build-deps && \
+# Remove build tools, keep runtime libs
+RUN apk del python3 make g++ && \
     apk add --no-cache libstdc++
 
 # Copy application code
