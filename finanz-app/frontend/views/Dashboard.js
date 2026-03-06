@@ -404,13 +404,14 @@ const DashboardView = {
                 <td v-for="p in data.persons" :key="p.name"
                     :class="{ 'amount-zero': (row.splits[p.name] || 0) === 0 }">
                   {{ fmt(row.splits[p.name] || 0) }}
-                  <div style="font-size:10px;color:var(--text-muted);font-weight:400">{{ fmt((row.splits[p.name] || 0) * 12) }}</div>
                 </td>
+                <td>{{ fmt(row.amount) }}</td>
                 <td>
-                  {{ fmt(row.amount) }}
-                  <div style="font-size:10px;color:var(--text-muted);font-weight:400">{{ fmt(row.amount * 12) }}</div>
+                  {{ fmt(row.amount * 12) }}
+                  <div style="font-size:10px;color:var(--text-muted);font-weight:400" v-for="p in data.persons" :key="'yr-'+p.name">
+                    {{ p.name }}: {{ fmt((row.splits[p.name] || 0) * 12) }}
+                  </div>
                 </td>
-                <td>{{ fmt(row.amount * 12) }}</td>
               </tr>
             </tbody>
           </table>
