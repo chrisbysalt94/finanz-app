@@ -129,4 +129,11 @@ if (!hasInvestCol) {
   }
 }
 
+// Migration: add amount_type and amount_percent columns to budget_items
+const hasAmountType = db.prepare("PRAGMA table_info(budget_items)").all().some(c => c.name === 'amount_type');
+if (!hasAmountType) {
+  db.exec("ALTER TABLE budget_items ADD COLUMN amount_type TEXT NOT NULL DEFAULT 'fixed'");
+  db.exec("ALTER TABLE budget_items ADD COLUMN amount_percent REAL DEFAULT NULL");
+}
+
 export default db;

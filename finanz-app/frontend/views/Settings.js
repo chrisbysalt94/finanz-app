@@ -7,33 +7,103 @@ const SettingsView = {
     const toast = ref('');
     const editingItem = ref(null);
     const showSecondJob = ref(false);
+    const searchQuery = ref('');
+    const addingItem = ref(false);
+    const newItem = ref(null);
 
     const persons = computed(() => props.data?.persons || []);
 
     const budgetItems = computed(() => {
       if (!props.data) return [];
       const { items } = props.data;
+      const query = searchQuery.value.toLowerCase().trim();
 
       const sectionLabels = {
         income: 'Einkommen', deductions: 'Abzüge', savings: 'Sparen',
         fixed: 'Fixkosten', auto: 'Auto', contracts: 'Verträge', housing: 'Wohnung',
       };
       const sectionIcons = {
-        income: '💰', deductions: '📤', savings: '🏦',
-        fixed: '📋', auto: '🚗', contracts: '📝', housing: '🏠',
+        income: '\u{1F4B0}', deductions: '\u{1F4E4}', savings: '\u{1F3E6}',
+        fixed: '\u{1F4CB}', auto: '\u{1F697}', contracts: '\u{1F4DD}', housing: '\u{1F3E0}',
       };
 
       const sections = {};
       for (const item of items) {
         const sec = item.section || 'fixed';
-        if (sec === 'income') continue; // income is shown separately at the top
-        if (!sections[sec]) sections[sec] = { label: sectionLabels[sec] || sec, icon: sectionIcons[sec] || '📁', items: [] };
+        if (sec === 'income') continue;
+
+        // Filter by search query
+        if (query) {
+          const matches =
+            (item.category_name || '').toLowerCase().includes(query) ||
+            (item.notes || '').toLowerCase().includes(query) ||
+            (item.target_account || '').toLowerCase().includes(query);
+          if (!matches) continue;
+        }
+
+        if (!sections[sec]) sections[sec] = { label: sectionLabels[sec] || sec, icon: sectionIcons[sec] || '\u{1F4C1}', items: [] };
         sections[sec].items.push(item);
       }
 
-      return Object.entries(sections).map(([key, val]) => ({
-        key, label: val.label, icon: val.icon, items: val.items,
-      }));
+      return Object.entries(sections)
+        .filter(([key, val]) => val.items.length > 0)
+        .map(([key, val]) => ({
+          key, label: val.label, icon: val.icon, items: val.items,
+        }));
+    });
+
+    // Live preview for edit modal
+    const editPreview = computed(() => {
+      if (!editingItem.value || !props.data) return null;
+      const item = editingItem.value;
+      const { persons: ps, adjustedTotal } = props.data;
+
+      let effectiveTotal = parseFloat(item.amount_total) || 0;
+      if (item.amount_type === 'percent' && item.amount_percent != null) {
+        effectiveTotal = Math.round(adjustedTotal * (parseFloat(item.amount_percent) || 0) / 100 * 100) / 100;
+      }
+
+      const splits = {};
+      for (const p of ps) {
+        if (item.split_type === 'custom' && item._customParsed) {
+          const pct = item._customParsed[p.name] || 0;
+          splits[p.name] = Math.round(effectiveTotal * pct / 100 * 100) / 100;
+        } else {
+          const adjIncome = p.net_income + (p.second_income || 0) - (p.invest_amount || 0);
+          const ratio = adjustedTotal > 0 ? adjIncome / adjustedTotal : 0;
+          splits[p.name] = Math.round(effectiveTotal * ratio * 100) / 100;
+        }
+      }
+
+      const pctOfAvailable = adjustedTotal > 0 ? (effectiveTotal / adjustedTotal * 100).toFixed(1) : '0.0';
+      return { effectiveTotal, splits, pctOfAvailable };
+    });
+
+    // Live preview for add modal
+    const addPreview = computed(() => {
+      if (!newItem.value || !props.data) return null;
+      const item = newItem.value;
+      const { persons: ps, adjustedTotal } = props.data;
+
+      let effectiveTotal = parseFloat(item.amount_total) || 0;
+      if (item.amount_type === 'percent' && item.amount_percent != null) {
+        effectiveTotal = Math.round(adjustedTotal * (parseFloat(item.amount_percent) || 0) / 100 * 100) / 100;
+      }
+
+      const splits = {};
+      for (const p of ps) {
+        if (item.split_type === 'custom' && item._customParsed) {
+          const pct = item._customParsed[p.name] || 0;
+          splits[p.name] = Math.round(effectiveTotal * pct / 100 * 100) / 100;
+        } else {
+          const adjIncome = p.net_income + (p.second_income || 0) - (p.invest_amount || 0);
+          const ratio = adjustedTotal > 0 ? adjIncome / adjustedTotal : 0;
+          splits[p.name] = Math.round(effectiveTotal * ratio * 100) / 100;
+        }
+      }
+
+      const pctOfAvailable = adjustedTotal > 0 ? (effectiveTotal / adjustedTotal * 100).toFixed(1) : '0.0';
+      return { effectiveTotal, splits, pctOfAvailable };
     });
 
     async function updateIncome(personId, value) {
@@ -74,24 +144,9 @@ const SettingsView = {
       return person.net_income > 0 ? ((person.invest_amount || 0) / person.net_income * 100).toFixed(1) : '0.0';
     }
 
-    async function updateBudgetItem(item) {
-      await fetch(`api/budget/${item.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          amount_total: parseFloat(item.amount_total) || 0,
-          split_type: item.split_type,
-          split_custom: item.split_custom,
-          target_account: item.target_account,
-          notes: item.notes,
-        }),
-      });
-      showToast('Gespeichert');
-      emit('refresh');
-    }
-
     function openEdit(item) {
       editingItem.value = { ...item };
+      if (!editingItem.value.amount_type) editingItem.value.amount_type = 'fixed';
       if (editingItem.value.split_type === 'custom' && editingItem.value.split_custom) {
         try {
           editingItem.value._customParsed = JSON.parse(editingItem.value.split_custom);
@@ -110,27 +165,114 @@ const SettingsView = {
       } else {
         item.split_custom = null;
       }
-      await updateBudgetItem(item);
+      await fetch(`api/budget/${item.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          amount_total: item.amount_type === 'percent' ? 0 : (parseFloat(item.amount_total) || 0),
+          split_type: item.split_type,
+          split_custom: item.split_custom,
+          target_account: item.target_account,
+          notes: item.notes,
+          amount_type: item.amount_type || 'fixed',
+          amount_percent: item.amount_type === 'percent' ? (parseFloat(item.amount_percent) || 0) : null,
+        }),
+      });
+      showToast('Gespeichert');
+      emit('refresh');
       editingItem.value = null;
+    }
+
+    function openAdd(sectionKey) {
+      const customParsed = {};
+      if (props.data?.persons) {
+        for (const p of props.data.persons) {
+          customParsed[p.name] = 50;
+        }
+      }
+      newItem.value = {
+        category_name: '',
+        amount_total: 0,
+        amount_type: 'fixed',
+        amount_percent: null,
+        split_type: 'proportional',
+        _customParsed: customParsed,
+        target_account: '',
+        notes: '',
+        section: sectionKey,
+      };
+      addingItem.value = true;
+    }
+
+    async function saveNewItem() {
+      const item = newItem.value;
+      if (!item.category_name.trim()) {
+        showToast('Bitte Name eingeben');
+        return;
+      }
+
+      // Find parent category for this section
+      const parentCat = props.data.categories.find(
+        c => c.section === item.section && c.parent_id === null
+      );
+
+      // Create new category
+      const catRes = await fetch('api/categories', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: item.category_name.trim(),
+          parent_id: parentCat?.id || null,
+          section: item.section,
+          color: parentCat?.color || '#ffffff',
+          sort_order: 100,
+        }),
+      });
+      const newCat = await catRes.json();
+
+      let splitCustom = null;
+      if (item.split_type === 'custom') {
+        splitCustom = JSON.stringify(item._customParsed);
+      }
+
+      await fetch('api/budget', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          category_id: newCat.id,
+          amount_total: item.amount_type === 'percent' ? 0 : (parseFloat(item.amount_total) || 0),
+          split_type: item.split_type,
+          split_custom: splitCustom,
+          target_account: item.target_account || null,
+          notes: item.notes || null,
+          amount_type: item.amount_type || 'fixed',
+          amount_percent: item.amount_type === 'percent' ? (parseFloat(item.amount_percent) || 0) : null,
+        }),
+      });
+
+      showToast('Hinzugefügt');
+      addingItem.value = false;
+      newItem.value = null;
+      emit('refresh');
     }
 
     function getFormulaText(item) {
       if (item.split_type === 'custom' && item.split_custom) {
         try {
           const custom = JSON.parse(item.split_custom);
-          return Object.entries(custom).map(([k, v]) => `${k}: ${v}%`).join(' · ');
+          return Object.entries(custom).map(([k, v]) => `${k}: ${v}%`).join(' \u00B7 ');
         } catch {
           return item.split_custom;
         }
       }
-      if (!props.data) return 'Gehaltsabhängig';
+      if (!props.data) return 'Gehaltsabh\u00E4ngig';
       const { persons, adjustedTotal } = props.data;
       const pcts = persons.map(p => {
         const adj = p.net_income - (p.invest_amount || 0);
         const pct = adjustedTotal > 0 ? ((adj / adjustedTotal) * 100).toFixed(1) : 0;
         return `${p.name}: ${pct}%`;
       });
-      return pcts.join(' · ');
+      return pcts.join(' \u00B7 ');
     }
 
     function getSplitLabel(item) {
@@ -171,21 +313,23 @@ const SettingsView = {
 
     return {
       persons, budgetItems, toast, editingItem, showSecondJob,
-      debounceIncome, debounceSecondIncome, debounceInvest, openEdit, saveEdit,
+      searchQuery, addingItem, newItem, editPreview, addPreview,
+      debounceIncome, debounceSecondIncome, debounceInvest,
+      openEdit, saveEdit, openAdd, saveNewItem,
       getFormulaText, getSplitLabel, fmt,
       suggestedInvest, investPct,
     };
   },
   template: `
     <div v-if="!data" style="text-align:center;padding:60px;color:var(--text-muted)">
-      <div style="font-size:32px;margin-bottom:8px">⚙️</div>
+      <div style="font-size:32px;margin-bottom:8px">\u2699\uFE0F</div>
       Laden...
     </div>
     <div v-else>
       <!-- Income Settings -->
       <div class="settings-section">
         <div class="settings-title">
-          <span class="settings-title-icon">💰</span> Einkommen
+          <span class="settings-title-icon">\u{1F4B0}</span> Einkommen
         </div>
         <div class="setting-row" v-for="p in persons" :key="p.id">
           <div>
@@ -199,7 +343,7 @@ const SettingsView = {
 
         <div v-if="!showSecondJob" class="setting-row" style="border:none;padding:8px 16px">
           <button class="btn btn-sm btn-ghost" @click="showSecondJob = true"
-                  style="font-size:12px;color:var(--blue)">+ Zweitjob hinzufügen</button>
+                  style="font-size:12px;color:var(--blue)">+ Zweitjob hinzuf\u00FCgen</button>
         </div>
 
         <template v-if="showSecondJob">
@@ -237,7 +381,7 @@ const SettingsView = {
       <!-- Investment Settings -->
       <div class="settings-section">
         <div class="settings-title">
-          <span class="settings-title-icon">📈</span> Investitionen
+          <span class="settings-title-icon">\u{1F4C8}</span> Investitionen
         </div>
         <div style="padding:0 16px 12px;font-size:12px;color:var(--text-muted)">
           Investitionen werden vom Gehalt abgezogen, bevor die Aufteilung berechnet wird.
@@ -247,10 +391,10 @@ const SettingsView = {
           <div style="flex:1;min-width:0">
             <div class="setting-label">{{ p.name }}</div>
             <div class="setting-sub">
-              {{ investPct(p) }}% vom Gehalt · Vorschlag (30%): {{ fmt(suggestedInvest(p)) }}
+              {{ investPct(p) }}% vom Gehalt \u00B7 Vorschlag (30%): {{ fmt(suggestedInvest(p)) }}
             </div>
             <div class="setting-sub" style="color:var(--text-secondary);margin-top:2px">
-              Verfügbar nach Investition: {{ fmt(p.net_income - (p.invest_amount || 0)) }}
+              Verf\u00FCgbar nach Investition: {{ fmt(p.net_income - (p.invest_amount || 0)) }}
             </div>
           </div>
           <input class="setting-input" type="number" step="1"
@@ -277,6 +421,13 @@ const SettingsView = {
         </div>
       </div>
 
+      <!-- Search -->
+      <div style="padding:12px 16px 0">
+        <input class="setting-input" style="width:100%;text-align:left;padding:10px 14px;font-size:14px;border-radius:10px"
+               type="text" placeholder="\u{1F50D} Kosten suchen..."
+               v-model="searchQuery">
+      </div>
+
       <!-- Budget Items by Section -->
       <div class="settings-section" v-for="section in budgetItems" :key="section.key">
         <div class="settings-title">
@@ -285,9 +436,25 @@ const SettingsView = {
         <div class="budget-item-edit" v-for="item in section.items" :key="item.id">
           <div class="flex-between">
             <div style="flex:1;min-width:0">
-              <div class="budget-item-name">{{ item.category_name }}</div>
+              <div class="budget-item-name">
+                {{ item.category_name }}
+                <span v-if="item.amount_type === 'percent'"
+                      style="font-size:11px;color:var(--purple);font-weight:700;margin-left:4px">
+                  ({{ item.amount_percent }}%)
+                </span>
+              </div>
               <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
                 <span class="formula-display">{{ getSplitLabel(item) }}: {{ getFormulaText(item) }}</span>
+              </div>
+              <!-- Per-person splits preview -->
+              <div style="display:flex;gap:8px;margin-top:5px;font-size:11px;color:var(--text-muted);flex-wrap:wrap">
+                <span v-for="p in data.persons" :key="'split-'+p.name+'-'+item.id"
+                      style="font-variant-numeric:tabular-nums">
+                  {{ p.name }}: {{ fmt(item.splits[p.name] || 0) }}
+                </span>
+                <span style="color:var(--text-tertiary)" v-if="data.adjustedTotal > 0">
+                  \u00B7 {{ (item.amount_total / data.adjustedTotal * 100).toFixed(1) }}%
+                </span>
               </div>
             </div>
             <div style="display:flex;align-items:center;gap:10px;flex-shrink:0">
@@ -296,6 +463,11 @@ const SettingsView = {
             </div>
           </div>
         </div>
+        <!-- Add button -->
+        <div style="padding:10px 16px;text-align:center">
+          <button class="btn btn-sm btn-ghost" style="color:var(--blue);font-size:13px"
+                  @click="openAdd(section.key)">+ Neuer Posten</button>
+        </div>
       </div>
 
       <!-- Edit Modal -->
@@ -303,7 +475,22 @@ const SettingsView = {
         <div class="modal">
           <div class="modal-title">{{ editingItem.category_name }}</div>
 
+          <!-- Amount type toggle -->
           <div class="field-group mb-8">
+            <div class="field-label">Betrags-Typ</div>
+            <select class="field-select" style="width:100%" v-model="editingItem.amount_type">
+              <option value="fixed">Fester Betrag (\u20AC)</option>
+              <option value="percent">Prozent vom Verf\u00FCgbaren</option>
+            </select>
+          </div>
+
+          <div class="field-group mb-8" v-if="editingItem.amount_type === 'percent'">
+            <div class="field-label">Prozent (von {{ fmt(data.adjustedTotal) }})</div>
+            <input class="setting-input" style="width:100%" type="number" step="0.1"
+                   v-model.number="editingItem.amount_percent">
+          </div>
+
+          <div class="field-group mb-8" v-else>
             <div class="field-label">Betrag (Gesamt/Monat)</div>
             <input class="setting-input" style="width:100%" type="number" step="0.01"
                    v-model.number="editingItem.amount_total">
@@ -312,7 +499,7 @@ const SettingsView = {
           <div class="field-group mb-8">
             <div class="field-label">Aufteilung</div>
             <select class="field-select" style="width:100%" v-model="editingItem.split_type">
-              <option value="proportional">Gehaltsabhängig (fair nach Einkommen)</option>
+              <option value="proportional">Gehaltsabh\u00E4ngig (fair nach Einkommen)</option>
               <option value="custom">Eigene Prozente</option>
             </select>
           </div>
@@ -331,10 +518,27 @@ const SettingsView = {
                style="padding:12px;background:rgba(108,141,255,0.08);border-radius:10px;border:1px solid rgba(108,141,255,0.15)">
             <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">Formel</div>
             <div style="font-family:monospace;font-size:12px;color:var(--accent)">
-              Anteil = (Gehalt - Invest) / Gesamtverfügbar x Betrag
+              Anteil = (Gehalt - Invest) / Gesamtverf\u00FCgbar x Betrag
             </div>
             <div style="font-size:11px;color:var(--text-muted);margin-top:6px" v-if="data">
               Aktuell: {{ data.persons.map(p => p.name + ': ' + ((p.net_income - (p.invest_amount || 0)) / data.adjustedTotal * 100).toFixed(1) + '%').join(', ') }}
+            </div>
+          </div>
+
+          <!-- Live Preview -->
+          <div v-if="editPreview" style="padding:12px;background:rgba(52,199,89,0.06);border-radius:10px;border:1px solid rgba(52,199,89,0.15);margin-bottom:12px">
+            <div style="font-size:11px;color:var(--green);margin-bottom:6px;font-weight:600;text-transform:uppercase;letter-spacing:0.3px">Vorschau</div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+              <span style="font-size:13px;font-weight:600">Gesamt/Monat</span>
+              <span style="font-size:13px;font-weight:800">{{ fmt(editPreview.effectiveTotal) }}</span>
+            </div>
+            <div v-for="p in data.persons" :key="'preview-'+p.name"
+                 style="display:flex;justify-content:space-between;font-size:12px;color:var(--text-secondary);margin-bottom:2px">
+              <span>{{ p.name }}</span>
+              <span style="font-weight:600;font-variant-numeric:tabular-nums">{{ fmt(editPreview.splits[p.name]) }}</span>
+            </div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:6px;text-align:right">
+              {{ editPreview.pctOfAvailable }}% vom Verf\u00FCgbaren ({{ fmt(data.adjustedTotal) }})
             </div>
           </div>
 
@@ -355,6 +559,98 @@ const SettingsView = {
           <div class="modal-actions">
             <button class="btn btn-ghost" @click="editingItem = null">Abbrechen</button>
             <button class="btn" @click="saveEdit">Speichern</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Add Item Modal -->
+      <div class="modal-backdrop" v-if="addingItem" @click.self="addingItem = false">
+        <div class="modal">
+          <div class="modal-title">Neuer Budgetposten</div>
+
+          <div class="field-group mb-8">
+            <div class="field-label">Name</div>
+            <input class="setting-input" style="width:100%;text-align:left" type="text"
+                   placeholder="z.B. Urlaub, Streaming..."
+                   v-model="newItem.category_name">
+          </div>
+
+          <!-- Amount type -->
+          <div class="field-group mb-8">
+            <div class="field-label">Betrags-Typ</div>
+            <select class="field-select" style="width:100%" v-model="newItem.amount_type">
+              <option value="fixed">Fester Betrag (\u20AC)</option>
+              <option value="percent">Prozent vom Verf\u00FCgbaren</option>
+            </select>
+          </div>
+
+          <div class="field-group mb-8" v-if="newItem.amount_type === 'percent'">
+            <div class="field-label">Prozent (von {{ fmt(data.adjustedTotal) }})</div>
+            <input class="setting-input" style="width:100%" type="number" step="0.1"
+                   v-model.number="newItem.amount_percent">
+          </div>
+
+          <div class="field-group mb-8" v-else>
+            <div class="field-label">Betrag (\u20AC/Monat)</div>
+            <input class="setting-input" style="width:100%" type="number" step="0.01"
+                   v-model.number="newItem.amount_total">
+          </div>
+
+          <!-- Split type -->
+          <div class="field-group mb-8">
+            <div class="field-label">Aufteilung</div>
+            <select class="field-select" style="width:100%" v-model="newItem.split_type">
+              <option value="proportional">Gehaltsabh\u00E4ngig</option>
+              <option value="custom">Eigene Prozente</option>
+            </select>
+          </div>
+
+          <div v-if="newItem.split_type === 'custom'" class="mb-8">
+            <div class="budget-item-fields">
+              <div class="field-group" v-for="p in data.persons" :key="'add-custom-'+p.name">
+                <div class="field-label">{{ p.name }} (%)</div>
+                <input class="setting-input" style="width:100%" type="number" step="0.01"
+                       v-model.number="newItem._customParsed[p.name]">
+              </div>
+            </div>
+          </div>
+
+          <!-- Live Preview for add -->
+          <div v-if="addPreview" style="padding:12px;background:rgba(52,199,89,0.06);border-radius:10px;border:1px solid rgba(52,199,89,0.15);margin-bottom:12px">
+            <div style="font-size:11px;color:var(--green);margin-bottom:6px;font-weight:600;text-transform:uppercase;letter-spacing:0.3px">Vorschau</div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+              <span style="font-size:13px;font-weight:600">Gesamt/Monat</span>
+              <span style="font-size:13px;font-weight:800">{{ fmt(addPreview.effectiveTotal) }}</span>
+            </div>
+            <div v-for="p in data.persons" :key="'add-preview-'+p.name"
+                 style="display:flex;justify-content:space-between;font-size:12px;color:var(--text-secondary);margin-bottom:2px">
+              <span>{{ p.name }}</span>
+              <span style="font-weight:600;font-variant-numeric:tabular-nums">{{ fmt(addPreview.splits[p.name]) }}</span>
+            </div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:6px;text-align:right">
+              {{ addPreview.pctOfAvailable }}% vom Verf\u00FCgbaren ({{ fmt(data.adjustedTotal) }})
+            </div>
+          </div>
+
+          <!-- Target account -->
+          <div class="field-group mb-8">
+            <div class="field-label">Zielkonto</div>
+            <input class="setting-input" style="width:100%;text-align:left" type="text"
+                   v-model="newItem.target_account"
+                   placeholder="z.B. Zusammen -> Revolut">
+          </div>
+
+          <!-- Notes -->
+          <div class="field-group mb-8">
+            <div class="field-label">Notizen</div>
+            <input class="setting-input" style="width:100%;text-align:left" type="text"
+                   v-model="newItem.notes"
+                   placeholder="Notizen...">
+          </div>
+
+          <div class="modal-actions">
+            <button class="btn btn-ghost" @click="addingItem = false">Abbrechen</button>
+            <button class="btn" @click="saveNewItem">Hinzuf\u00FCgen</button>
           </div>
         </div>
       </div>

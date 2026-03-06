@@ -14,16 +14,16 @@ router.get('/', (req, res) => {
 });
 
 router.post('/', (req, res) => {
-  const { category_id, amount_total, split_type, split_custom, target_account, notes } = req.body;
+  const { category_id, amount_total, split_type, split_custom, target_account, notes, amount_type, amount_percent } = req.body;
   const result = db.prepare(
-    'INSERT INTO budget_items (category_id, amount_total, split_type, split_custom, target_account, notes) VALUES (?, ?, ?, ?, ?, ?)'
-  ).run(category_id, amount_total || 0, split_type || 'proportional', split_custom || null, target_account || null, notes || null);
+    'INSERT INTO budget_items (category_id, amount_total, split_type, split_custom, target_account, notes, amount_type, amount_percent) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(category_id, amount_total || 0, split_type || 'proportional', split_custom || null, target_account || null, notes || null, amount_type || 'fixed', amount_percent ?? null);
   const item = db.prepare('SELECT * FROM budget_items WHERE id = ?').get(result.lastInsertRowid);
   res.json(item);
 });
 
 router.put('/:id', (req, res) => {
-  const { category_id, amount_total, split_type, split_custom, target_account, notes } = req.body;
+  const { category_id, amount_total, split_type, split_custom, target_account, notes, amount_type, amount_percent } = req.body;
   db.prepare(`
     UPDATE budget_items SET
       category_id = COALESCE(?, category_id),
@@ -31,9 +31,11 @@ router.put('/:id', (req, res) => {
       split_type = COALESCE(?, split_type),
       split_custom = ?,
       target_account = ?,
-      notes = ?
+      notes = ?,
+      amount_type = COALESCE(?, amount_type),
+      amount_percent = ?
     WHERE id = ?
-  `).run(category_id, amount_total, split_type, split_custom, target_account, notes, req.params.id);
+  `).run(category_id, amount_total, split_type, split_custom, target_account, notes, amount_type, amount_percent ?? null, req.params.id);
   const item = db.prepare('SELECT * FROM budget_items WHERE id = ?').get(req.params.id);
   res.json(item);
 });
@@ -64,20 +66,26 @@ router.get('/computed', (req, res) => {
   `).all();
 
   const computedItems = items.map(item => {
+    // Resolve effective amount for percent-based items
+    let effectiveTotal = item.amount_total;
+    if (item.amount_type === 'percent' && item.amount_percent != null) {
+      effectiveTotal = Math.round(adjustedTotal * item.amount_percent / 100 * 100) / 100;
+    }
+
     const splits = {};
     for (const person of persons) {
       if (item.split_type === 'custom' && item.split_custom) {
         const custom = JSON.parse(item.split_custom);
         const pct = custom[person.name] || 0;
-        splits[person.name] = Math.round((item.amount_total * pct / 100) * 100) / 100;
+        splits[person.name] = Math.round((effectiveTotal * pct / 100) * 100) / 100;
       } else {
         // proportional based on adjusted income (salary + second job - investments)
         const adjustedIncome = person.net_income + (person.second_income || 0) - (person.invest_amount || 0);
         const ratio = adjustedTotal > 0 ? adjustedIncome / adjustedTotal : 0;
-        splits[person.name] = Math.round((item.amount_total * ratio) * 100) / 100;
+        splits[person.name] = Math.round((effectiveTotal * ratio) * 100) / 100;
       }
     }
-    return { ...item, splits };
+    return { ...item, amount_total: effectiveTotal, splits };
   });
 
   // Compute parent category sums
