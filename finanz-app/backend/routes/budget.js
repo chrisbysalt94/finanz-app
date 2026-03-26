@@ -233,6 +233,10 @@ function parseTargetAccount(target) {
     dest = arrowMatch[1].trim();
   }
 
+  // Match Spastkonto - personal fun money deductions (no bank transfer needed)
+  if (/spast/i.test(dest)) {
+    return { bank: null, pocket: null };
+  }
   // Match Revolut / Revolute
   if (/^Revolute?\b/i.test(dest)) {
     const pocket = dest.replace(/^Revolute?\s*/i, '').trim() || null;

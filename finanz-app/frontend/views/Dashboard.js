@@ -93,39 +93,53 @@ const DashboardView = {
         personExpenses[p.name] = 0;
       }
 
-      // Deductions (items from 'deductions' section) - tracked separately for display
-      const personDeductions = {};
-      const deductionItems = {};
+      // Track items deducted from salary and from Spast Geld separately
+      const deductionItems = {};  // deducted from salary (section: deductions)
+      const spastItems = {};      // deducted from Spast Geld (target: Spastkonto)
       for (const p of persons) {
-        personDeductions[p.name] = 0;
         deductionItems[p.name] = [];
+        spastItems[p.name] = [];
       }
 
       for (const item of items) {
         if (item.section === 'income') continue;
+        const isSpastkonto = (item.target_account || '').toLowerCase().includes('spast');
         totalExpenses += item.amount_total;
         for (const p of persons) {
           const amount = item.splits[p.name] || 0;
           personExpenses[p.name] += amount;
-          if (item.section === 'deductions' && amount > 0) {
-            personDeductions[p.name] += amount;
-            deductionItems[p.name].push({ name: item.category_name, amount });
+          if (amount > 0) {
+            if (isSpastkonto) {
+              spastItems[p.name].push({ name: item.category_name, amount });
+            } else if (item.section === 'deductions') {
+              deductionItems[p.name].push({ name: item.category_name, amount });
+            }
           }
         }
       }
 
-      // Fun money = total salary - investments - savings - expenses
-      const funMoney = {};
+      // Fun money = total salary - investments - savings - expenses (excl. Spastkonto items)
+      // Spastkonto items are shown separately as deductions FROM fun money
+      const spastTotals = {};
+      for (const p of persons) {
+        spastTotals[p.name] = spastItems[p.name].reduce((s, d) => s + d.amount, 0);
+      }
+
+      const funMoney = {};       // gross fun money (before Spastkonto deductions)
+      const funMoneyNet = {};    // net fun money (after Spastkonto deductions)
       for (const p of persons) {
         const totalSalary = p.net_income + (p.second_income || 0);
-        funMoney[p.name] = Math.round((totalSalary - (p.invest_amount || 0) - (p.savings_amount || 0) - personExpenses[p.name]) * 100) / 100;
+        const expensesWithoutSpast = personExpenses[p.name] - spastTotals[p.name];
+        funMoney[p.name] = Math.round((totalSalary - (p.invest_amount || 0) - (p.savings_amount || 0) - expensesWithoutSpast) * 100) / 100;
+        funMoneyNet[p.name] = Math.round((funMoney[p.name] - spastTotals[p.name]) * 100) / 100;
       }
 
       const totalFun = Math.round(Object.values(funMoney).reduce((a, b) => a + b, 0) * 100) / 100;
+      const totalFunNet = Math.round(Object.values(funMoneyNet).reduce((a, b) => a + b, 0) * 100) / 100;
       totalInvestments = Math.round(totalInvestments * 100) / 100;
       totalSavingsAmount = Math.round(totalSavingsAmount * 100) / 100;
-      // True savings = investments + savings + fun money (money left over)
-      const totalSaved = totalFun + totalInvestments + totalSavingsAmount;
+      // True savings = investments + savings + net fun money (money left over after Spast deductions)
+      const totalSaved = totalFunNet + totalInvestments + totalSavingsAmount;
       const savingsRate = totalIncome > 0 ? Math.round(totalSaved / totalIncome * 100) : 0;
       const investRate = totalIncome > 0 ? Math.round(totalInvestments / totalIncome * 100) : 0;
 
@@ -137,13 +151,16 @@ const DashboardView = {
         totalSavingsAmount,
         personSavings,
         funMoney,
+        funMoneyNet,
         totalFun,
+        totalFunNet,
         totalSaved,
         savingsRate,
         investRate,
         persons,
         personExpenses,
         deductionItems,
+        spastItems,
       };
     });
 
@@ -376,7 +393,7 @@ const DashboardView = {
         <div class="summary-card card-fun" style="grid-column: 1 / -1">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
             <div class="summary-card-label" style="margin:0">Spast Geld</div>
-            <div class="summary-card-value" style="color:var(--color-fun);margin:0">{{ fmt(summaryData.totalFun) }}</div>
+            <div class="summary-card-value" style="color:var(--color-fun);margin:0">{{ fmt(summaryData.totalFunNet) }}</div>
           </div>
           <div style="display:flex;gap:12px;flex-wrap:wrap">
             <div v-for="p in summaryData.persons" :key="'fun-detail-'+p.name"
@@ -384,8 +401,8 @@ const DashboardView = {
               <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
                 <span style="font-weight:700;font-size:14px">{{ p.name }}</span>
                 <span style="font-weight:800;font-size:18px;font-variant-numeric:tabular-nums"
-                      :style="{color: summaryData.funMoney[p.name] >= 0 ? 'var(--color-fun)' : '#ff3b30'}">
-                  {{ fmt(summaryData.funMoney[p.name]) }}
+                      :style="{color: summaryData.funMoneyNet[p.name] >= 0 ? 'var(--color-fun)' : '#ff3b30'}">
+                  {{ fmt(summaryData.funMoneyNet[p.name]) }}
                 </span>
               </div>
               <div style="font-size:11px;color:var(--text-muted);border-top:1px solid rgba(255,255,255,0.08);padding-top:8px">
@@ -417,6 +434,19 @@ const DashboardView = {
                 <div style="display:flex;justify-content:space-between;padding:4px 0;margin-top:6px;border-top:1px solid rgba(255,255,255,0.1);font-size:12px;font-weight:700">
                   <span style="color:var(--color-fun)">= Spast Geld</span>
                   <span style="color:var(--color-fun)">{{ fmt(summaryData.funMoney[p.name]) }}</span>
+                </div>
+                <div v-if="summaryData.spastItems[p.name]?.length"
+                     style="margin-top:6px;border-top:1px solid rgba(255,59,48,0.2);padding-top:4px">
+                  <div style="font-size:10px;color:#ff3b30;opacity:0.8;margin-bottom:3px;font-weight:600">Direkt vom Spast Geld:</div>
+                  <div v-for="d in summaryData.spastItems[p.name]" :key="'sp-'+d.name"
+                       style="display:flex;justify-content:space-between;padding:1px 0;font-size:10px;color:#ff3b30;opacity:0.8">
+                    <span>{{ d.name }}</span>
+                    <span>- {{ fmt(d.amount) }}</span>
+                  </div>
+                  <div style="display:flex;justify-content:space-between;padding:3px 0;margin-top:3px;border-top:1px solid rgba(255,255,255,0.08);font-size:12px;font-weight:800;color:var(--color-fun)">
+                    <span>= Frei verf\u00FCgbar</span>
+                    <span>{{ fmt(summaryData.funMoneyNet[p.name]) }}</span>
+                  </div>
                 </div>
               </div>
             </div>
