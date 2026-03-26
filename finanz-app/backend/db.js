@@ -70,11 +70,11 @@ if (accountCount === 0) {
   const persons = db.prepare('SELECT * FROM persons ORDER BY id').all();
   const insertAcc = db.prepare('INSERT OR IGNORE INTO accounts (person_id, bank, iban) VALUES (?, ?, ?)');
 
-  // Shared Revolut account
-  insertAcc.run(null, 'Revolut', 'DE87 1001 0178 3066 1425 18');
-  // Personal TradeRepublic accounts
-  if (persons[0]) insertAcc.run(persons[0].id, 'TradeRepublic', 'DE44 1001 2345 0160 0952 01');
-  if (persons[1]) insertAcc.run(persons[1].id, 'TradeRepublic', 'DE90 1001 2345 0887 0632 01');
+  // Shared Revolut account (placeholder IBAN — update in app)
+  insertAcc.run(null, 'Revolut', 'DE00 0000 0000 0000 0000 00');
+  // Personal TradeRepublic accounts (placeholder IBANs — update in app)
+  if (persons[0]) insertAcc.run(persons[0].id, 'TradeRepublic', 'DE00 0000 0000 0000 0000 01');
+  if (persons[1]) insertAcc.run(persons[1].id, 'TradeRepublic', 'DE00 0000 0000 0000 0000 02');
 
   // Set target_account for contract items that don't have one
   db.prepare(`

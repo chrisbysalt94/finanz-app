@@ -373,21 +373,53 @@ const DashboardView = {
           <div class="summary-card-sub">{{ fmt(summaryData.totalSaved) }}/Mo gespart</div>
           <div class="summary-card-sub" style="font-size:10px;opacity:0.7">Investitionen + Sparen + Spast Geld</div>
         </div>
-        <div class="summary-card card-fun">
-          <div class="summary-card-label">Spast Geld</div>
-          <div class="summary-card-value" style="color:var(--color-fun)">{{ fmt(summaryData.totalFun) }}</div>
-          <div class="summary-card-sub" v-for="(val, name) in summaryData.funMoney" :key="name">
-            {{ name }}: {{ fmt(val) }}
+        <div class="summary-card card-fun" style="grid-column: 1 / -1">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+            <div class="summary-card-label" style="margin:0">Spast Geld</div>
+            <div class="summary-card-value" style="color:var(--color-fun);margin:0">{{ fmt(summaryData.totalFun) }}</div>
           </div>
-          <div style="margin-top:8px;border-top:1px solid rgba(255,255,255,0.1);padding-top:6px">
-            <div style="font-size:10px;opacity:0.7;margin-bottom:4px">Bereits abgezogen:</div>
-            <template v-for="(items, pName) in summaryData.deductionItems" :key="'ded-'+pName">
-              <div v-for="d in items" :key="'d-'+pName+'-'+d.name"
-                   style="font-size:10px;display:flex;justify-content:space-between;opacity:0.6;padding:1px 0">
-                <span>{{ pName }}: {{ d.name }}</span>
-                <span>{{ fmt(d.amount) }}</span>
+          <div style="display:flex;gap:12px;flex-wrap:wrap">
+            <div v-for="p in summaryData.persons" :key="'fun-detail-'+p.name"
+                 style="flex:1;min-width:200px;background:rgba(255,255,255,0.06);border-radius:12px;padding:12px">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                <span style="font-weight:700;font-size:14px">{{ p.name }}</span>
+                <span style="font-weight:800;font-size:18px;font-variant-numeric:tabular-nums"
+                      :style="{color: summaryData.funMoney[p.name] >= 0 ? 'var(--color-fun)' : '#ff3b30'}">
+                  {{ fmt(summaryData.funMoney[p.name]) }}
+                </span>
               </div>
-            </template>
+              <div style="font-size:11px;color:var(--text-muted);border-top:1px solid rgba(255,255,255,0.08);padding-top:8px">
+                <div style="display:flex;justify-content:space-between;padding:2px 0">
+                  <span>Gehalt</span>
+                  <span style="font-weight:600;color:var(--green)">{{ fmt((p.net_income || 0) + (p.second_income || 0)) }}</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;padding:2px 0" v-if="(p.invest_amount || 0) > 0">
+                  <span>Investitionen</span>
+                  <span style="font-weight:600;color:var(--purple)">- {{ fmt(p.invest_amount) }}</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;padding:2px 0" v-if="(p.savings_amount || 0) > 0">
+                  <span>Sparen</span>
+                  <span style="font-weight:600;color:var(--purple)">- {{ fmt(p.savings_amount) }}</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;padding:2px 0">
+                  <span>Ausgaben (Anteil)</span>
+                  <span style="font-weight:600;color:var(--color-savings)">- {{ fmt(summaryData.personExpenses[p.name]) }}</span>
+                </div>
+                <div v-if="summaryData.deductionItems[p.name]?.length"
+                     style="margin-top:6px;border-top:1px solid rgba(255,255,255,0.06);padding-top:4px">
+                  <div style="font-size:10px;opacity:0.5;margin-bottom:3px">Davon bereits vom Gehalt abgezogen:</div>
+                  <div v-for="d in summaryData.deductionItems[p.name]" :key="'dd-'+d.name"
+                       style="display:flex;justify-content:space-between;padding:1px 0;opacity:0.7;font-size:10px">
+                    <span>{{ d.name }}</span>
+                    <span>- {{ fmt(d.amount) }}</span>
+                  </div>
+                </div>
+                <div style="display:flex;justify-content:space-between;padding:4px 0;margin-top:6px;border-top:1px solid rgba(255,255,255,0.1);font-size:12px;font-weight:700">
+                  <span style="color:var(--color-fun)">= Spast Geld</span>
+                  <span style="color:var(--color-fun)">{{ fmt(summaryData.funMoney[p.name]) }}</span>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
