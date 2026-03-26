@@ -148,6 +148,40 @@ const SettingsView = {
       emit('refresh');
     }
 
+    // Live fun money preview (Spaßgeld per person)
+    const funMoneyPreview = computed(() => {
+      if (!props.data) return null;
+      const { persons: ps, totalIncome, items } = props.data;
+
+      // Calculate total expenses per person from all budget items
+      const personExpenses = {};
+      const deductionItems = {};
+      for (const p of ps) {
+        personExpenses[p.name] = 0;
+        deductionItems[p.name] = [];
+      }
+      for (const item of items) {
+        if (item.section === 'income') continue;
+        for (const p of ps) {
+          const amount = item.splits[p.name] || 0;
+          personExpenses[p.name] += amount;
+          if (item.section === 'deductions' && amount > 0) {
+            deductionItems[p.name].push({ name: item.category_name, amount });
+          }
+        }
+      }
+
+      // Fun money = salary - investments - savings - expenses
+      const funMoney = {};
+      for (const p of ps) {
+        const totalSalary = p.net_income + (p.second_income || 0);
+        funMoney[p.name] = Math.round((totalSalary - (p.invest_amount || 0) - (p.savings_amount || 0) - personExpenses[p.name]) * 100) / 100;
+      }
+      const totalFun = Math.round(Object.values(funMoney).reduce((a, b) => a + b, 0) * 100) / 100;
+
+      return { funMoney, totalFun, deductionItems };
+    });
+
     function suggestedInvest(person) {
       return Math.round(person.net_income * 0.3 * 100) / 100;
     }
@@ -331,7 +365,7 @@ const SettingsView = {
 
     return {
       persons, budgetItems, toast, editingItem, showSecondJob,
-      searchQuery, addingItem, newItem, editPreview, addPreview,
+      searchQuery, addingItem, newItem, editPreview, addPreview, funMoneyPreview,
       debounceIncome, debounceSecondIncome, debounceInvest, debounceSavings,
       openEdit, saveEdit, openAdd, saveNewItem,
       getFormulaText, getSplitLabel, fmt,
@@ -435,6 +469,28 @@ const SettingsView = {
           <input class="setting-input" type="number" step="1"
                  :value="p.savings_amount || 0"
                  @input="debounceSavings(p.id, $event)">
+        </div>
+      </div>
+
+      <!-- Spaßgeld Live Preview (sticky) -->
+      <div v-if="funMoneyPreview" style="position:sticky;top:0;z-index:50;margin:12px 16px 0;padding:14px 16px;background:linear-gradient(135deg, rgba(52,199,89,0.12), rgba(52,199,89,0.06));border-radius:14px;border:1px solid rgba(52,199,89,0.2);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px)">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <span style="font-size:13px;font-weight:700;color:var(--green)">💰 Spast Geld</span>
+          <span style="font-size:15px;font-weight:800;color:var(--green)">{{ fmt(funMoneyPreview.totalFun) }}</span>
+        </div>
+        <div style="display:flex;gap:12px">
+          <div v-for="p in persons" :key="'fun-'+p.id" style="flex:1;background:rgba(0,0,0,0.05);border-radius:10px;padding:8px 10px">
+            <div style="font-size:11px;color:var(--text-muted);margin-bottom:2px">{{ p.name }}</div>
+            <div style="font-size:16px;font-weight:800;font-variant-numeric:tabular-nums" :style="{color: funMoneyPreview.funMoney[p.name] >= 0 ? 'var(--green)' : 'var(--red, #ff3b30)'}">{{ fmt(funMoneyPreview.funMoney[p.name]) }}</div>
+            <div v-if="funMoneyPreview.deductionItems[p.name]?.length" style="margin-top:4px;border-top:1px solid rgba(0,0,0,0.08);padding-top:4px">
+              <div style="font-size:9px;color:var(--text-muted);margin-bottom:2px">Bereits abgezogen:</div>
+              <div v-for="d in funMoneyPreview.deductionItems[p.name]" :key="'fd-'+d.name"
+                   style="font-size:10px;display:flex;justify-content:space-between;color:var(--text-muted);padding:1px 0">
+                <span>{{ d.name }}</span>
+                <span>-{{ fmt(d.amount) }}</span>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
