@@ -361,6 +361,13 @@ const SettingsView = {
       emit('refresh');
     }
 
+    async function deleteItem(item) {
+      if (!confirm(`"${item.category_name}" wirklich l\u00F6schen?`)) return;
+      await fetch(`api/budget/${item.id}`, { method: 'DELETE' });
+      showToast('Gel\u00F6scht');
+      emit('refresh');
+    }
+
     function getFormulaText(item) {
       if (item.split_type === 'custom' && item.split_custom) {
         try {
@@ -426,7 +433,7 @@ const SettingsView = {
       persons, budgetItems, toast, editingItem, showSecondJob,
       searchQuery, addingItem, newItem, editPreview, addPreview, funMoneyPreview,
       debounceIncome, debounceSecondIncome, debounceInvest, debounceSavings,
-      openEdit, saveEdit, openAdd, saveNewItem,
+      openEdit, saveEdit, deleteItem, openAdd, saveNewItem,
       getFormulaText, getSplitLabel, getAccountGroup, fmt,
       suggestedInvest, investPct,
     };
@@ -598,9 +605,10 @@ const SettingsView = {
                 </span>
               </div>
             </div>
-            <div style="display:flex;align-items:center;gap:10px;flex-shrink:0">
+            <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
               <strong style="font-size:15px;font-variant-numeric:tabular-nums">{{ fmt(item.amount_total) }}</strong>
               <button class="btn btn-sm btn-ghost" @click="openEdit(item)">Bearbeiten</button>
+              <button class="btn btn-sm btn-ghost" style="color:#ff3b30;font-size:11px;padding:4px 8px" @click="deleteItem(item)">L\u00F6schen</button>
             </div>
           </div>
         </div>
