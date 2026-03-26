@@ -511,7 +511,7 @@ const SettingsView = {
               {{ investPct(p) }}% vom Gehalt
             </div>
           </div>
-          <input class="setting-input" type="number" step="1"
+          <input class="setting-input" type="number" step="0.01"
                  :value="p.invest_amount || 0"
                  @input="debounceInvest(p.id, $event)">
         </div>
@@ -532,7 +532,7 @@ const SettingsView = {
               {{ p.net_income > 0 ? ((p.savings_amount || 0) / p.net_income * 100).toFixed(1) : '0.0' }}% vom Gehalt
             </div>
           </div>
-          <input class="setting-input" type="number" step="1"
+          <input class="setting-input" type="number" step="0.01"
                  :value="p.savings_amount || 0"
                  @input="debounceSavings(p.id, $event)">
         </div>

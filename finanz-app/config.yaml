@@ -1,6 +1,6 @@
 name: "Finanz App"
 description: "Haushaltsbudget-Planer für Paare mit gehaltsabhängiger Kostenaufteilung"
-version: "1.5.3"
+version: "1.5.4"
 slug: "finanz-app"
 url: "https://github.com/chrisbysalt94/finanz-app"
 arch:
