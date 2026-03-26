@@ -103,7 +103,9 @@ const DashboardView = {
 
       for (const item of items) {
         if (item.section === 'income') continue;
-        const isSpastkonto = (item.target_account || '').toLowerCase().includes('spast');
+        const target = (item.target_account || '').toLowerCase().trim();
+        const isSpastkonto = target.includes('spast');
+        const isNoAccount = !target; // no target = personal/from salary
         totalExpenses += item.amount_total;
         for (const p of persons) {
           const amount = item.splits[p.name] || 0;
@@ -111,7 +113,7 @@ const DashboardView = {
           if (amount > 0) {
             if (isSpastkonto) {
               spastItems[p.name].push({ name: item.category_name, amount });
-            } else if (item.section === 'deductions') {
+            } else if (isNoAccount) {
               deductionItems[p.name].push({ name: item.category_name, amount });
             }
           }
