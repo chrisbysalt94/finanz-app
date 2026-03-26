@@ -8,62 +8,140 @@ const DashboardView = {
     let donutChart = null;
     let barChart = null;
 
-    const sections = computed(() => {
+    // Parse target_account into bank + pocket
+    function parseAccount(target) {
+      if (!target) return { bank: null, pocket: null, group: null };
+      let dest = target.trim();
+      const arrow = dest.match(/^(?:Zusammen|Getrennt)\s*->\s*(.+)$/i);
+      if (arrow) dest = arrow[1].trim();
+      // Normalize Revolute -> Revolut
+      dest = dest.replace(/^Revolute\b/i, 'Revolut');
+
+      if (/^Revolut\b/i.test(dest)) {
+        const pocket = dest.replace(/^Revolut\s*/i, '').trim() || null;
+        // Group by first word of pocket (e.g. "Auto Tanken" -> group "Auto")
+        const group = pocket ? pocket.split(/\s+/)[0] : null;
+        return { bank: 'Revolut', pocket, group };
+      }
+      if (/^TradeRepublic/i.test(dest)) return { bank: 'TradeRepublic', pocket: null, group: null };
+      if (/spast/i.test(dest)) return { bank: 'Spastkonto', pocket: null, group: null };
+      if (/MVB|Barclay/i.test(dest)) return { bank: 'MVB / Barclay', pocket: null, group: null };
+      if (arrow) return { bank: 'Getrennt', pocket: dest, group: null };
+      return { bank: null, pocket: null, group: null };
+    }
+
+    // Account-based sections for budget display
+    const accountSections = computed(() => {
       if (!props.data) return [];
-      const { categories, items, parentSums, persons } = props.data;
+      const { items, persons, totalIncome } = props.data;
 
-      const sectionOrder = ['income', 'deductions', 'savings', 'fixed', 'auto', 'contracts', 'housing'];
-      const sectionLabels = {
-        income: 'Einkommen', deductions: 'Abzüge', savings: 'Sparen',
-        fixed: 'Fixkosten', auto: 'Auto', contracts: 'Verträge', housing: 'Wohnung',
+      const bankOrder = ['Revolut', 'TradeRepublic', 'MVB / Barclay', 'Getrennt', 'Spastkonto', '_none'];
+      const bankIcons = {
+        'Revolut': '\u{1F4B3}', 'TradeRepublic': '\u{1F4C8}', 'MVB / Barclay': '\u{1F3E6}',
+        'Getrennt': '\u{1F465}', 'Spastkonto': '\u{1F4B0}', '_none': '\u{1F464}',
       };
-      const sectionClasses = {
-        income: 'section-income', deductions: 'section-deductions',
-        savings: 'section-savings', fixed: 'section-fixed',
-        auto: 'section-auto', contracts: 'section-contracts',
-        housing: 'section-housing',
+      const bankColors = {
+        'Revolut': '#6c8dff', 'TradeRepublic': '#5856d6', 'MVB / Barclay': '#ff9500',
+        'Getrennt': '#8e8e93', 'Spastkonto': '#34c759', '_none': '#aeaeb2',
       };
 
-      const result = [];
-      for (const sec of sectionOrder) {
-        const topCats = categories.filter(c => c.section === sec && c.parent_id === null);
-        if (topCats.length === 0) continue;
+      // Build nested structure: bank -> subgroup -> items
+      const banks = {};
+      for (const item of items) {
+        if (item.section === 'income') continue;
+        if (item.amount_total === 0) continue;
+        const acc = parseAccount(item.target_account);
+        const bankKey = acc.bank || '_none';
 
-        const rows = [];
-        let sectionTotal = 0;
-        for (const parent of topCats) {
-          const children = items.filter(i => i.parent_id === parent.id);
-          const directItem = items.find(i => i.category_id === parent.id);
-
-          if (children.length > 0) {
-            const sum = parentSums[parent.id];
-            if (sum) {
-              sectionTotal += sum.amount_total;
-              rows.push({
-                type: 'parent', name: parent.name, amount: sum.amount_total,
-                splits: sum.splits, target: directItem?.target_account || '',
-              });
-            }
-            for (const child of children) {
-              rows.push({
-                type: 'child', name: child.category_name, amount: child.amount_total,
-                splits: child.splits, target: child.target_account || '',
-              });
-            }
-          } else if (directItem) {
-            sectionTotal += directItem.amount_total;
-            rows.push({
-              type: 'item', name: parent.name, amount: directItem.amount_total,
-              splits: directItem.splits, target: directItem.target_account || '',
-            });
-          }
+        if (!banks[bankKey]) {
+          banks[bankKey] = { subgroups: {}, directItems: [], total: 0, splits: {} };
+          for (const p of persons) banks[bankKey].splits[p.name] = 0;
+        }
+        banks[bankKey].total += item.amount_total;
+        for (const p of persons) {
+          banks[bankKey].splits[p.name] += item.splits[p.name] || 0;
         }
 
+        // Group Revolut items by pocket group
+        if (bankKey === 'Revolut' && acc.group) {
+          const grpKey = acc.group;
+          if (!banks[bankKey].subgroups[grpKey]) {
+            banks[bankKey].subgroups[grpKey] = { items: [], total: 0, splits: {} };
+            for (const p of persons) banks[bankKey].subgroups[grpKey].splits[p.name] = 0;
+          }
+          banks[bankKey].subgroups[grpKey].items.push(item);
+          banks[bankKey].subgroups[grpKey].total += item.amount_total;
+          for (const p of persons) {
+            banks[bankKey].subgroups[grpKey].splits[p.name] += item.splits[p.name] || 0;
+          }
+        } else {
+          banks[bankKey].directItems.push(item);
+        }
+      }
+
+      // Convert to sorted array
+      const result = [];
+      for (const bankKey of bankOrder) {
+        const bank = banks[bankKey];
+        if (!bank || bank.total === 0) continue;
+
+        const pct = totalIncome > 0 ? (bank.total / totalIncome * 100).toFixed(1) : '0.0';
+        const label = bankKey === '_none' ? 'Pers\u00F6nlich' : bankKey;
+        const subgroups = [];
+
+        // Add subgroups (sorted by total desc)
+        for (const [grpName, grp] of Object.entries(bank.subgroups).sort((a, b) => b[1].total - a[1].total)) {
+          const grpPct = totalIncome > 0 ? (grp.total / totalIncome * 100).toFixed(1) : '0.0';
+          // Round splits
+          const grpSplits = {};
+          for (const p of persons) grpSplits[p.name] = Math.round(grp.splits[p.name] * 100) / 100;
+          subgroups.push({
+            name: grpName,
+            total: Math.round(grp.total * 100) / 100,
+            pct: grpPct,
+            splits: grpSplits,
+            items: grp.items.map(i => ({
+              name: i.category_name, amount: i.amount_total,
+              splits: i.splits, pct: totalIncome > 0 ? (i.amount_total / totalIncome * 100).toFixed(1) : '0.0',
+            })),
+          });
+        }
+
+        // Round bank splits
+        const bankSplits = {};
+        for (const p of persons) bankSplits[p.name] = Math.round(bank.splits[p.name] * 100) / 100;
+
         result.push({
-          key: sec, label: sectionLabels[sec], cssClass: sectionClasses[sec],
-          rows, total: sectionTotal,
+          key: bankKey, label, pct,
+          icon: bankIcons[bankKey] || '\u{1F4B3}',
+          color: bankColors[bankKey] || '#6c8dff',
+          total: Math.round(bank.total * 100) / 100,
+          splits: bankSplits,
+          subgroups,
+          directItems: bank.directItems.map(i => ({
+            name: i.category_name, amount: i.amount_total,
+            splits: i.splits, pct: totalIncome > 0 ? (i.amount_total / totalIncome * 100).toFixed(1) : '0.0',
+          })),
         });
       }
+
+      // Add unknowns (banks not in bankOrder)
+      for (const [bankKey, bank] of Object.entries(banks)) {
+        if (bankOrder.includes(bankKey) || bank.total === 0) continue;
+        const bankSplits = {};
+        for (const p of persons) bankSplits[p.name] = Math.round(bank.splits[p.name] * 100) / 100;
+        result.push({
+          key: bankKey, label: bankKey, pct: totalIncome > 0 ? (bank.total / totalIncome * 100).toFixed(1) : '0.0',
+          icon: '\u{1F3E6}', color: '#8e8e93',
+          total: Math.round(bank.total * 100) / 100,
+          splits: bankSplits, subgroups: [],
+          directItems: bank.directItems.map(i => ({
+            name: i.category_name, amount: i.amount_total,
+            splits: i.splits, pct: totalIncome > 0 ? (i.amount_total / totalIncome * 100).toFixed(1) : '0.0',
+          })),
+        });
+      }
+
       return result;
     });
 
@@ -168,54 +246,48 @@ const DashboardView = {
 
     // Insights/Recommendations
     const insights = computed(() => {
-      if (!summaryData.value || !sections.value.length) return [];
+      if (!summaryData.value || !accountSections.value.length) return [];
       const tips = [];
       const s = summaryData.value;
 
-      // Savings rate (investments + fun money)
       if (s.savingsRate < 10) {
         tips.push({ icon: 'warn', title: 'Niedrige Sparquote', desc: `Eure Sparquote liegt bei ${s.savingsRate}% (inkl. ${fmt(s.totalInvestments)} Investitionen + ${fmt(s.totalSavingsAmount)} Sparen). Ziel: mindestens 20%.` });
       } else if (s.savingsRate >= 20) {
-        tips.push({ icon: 'good', title: 'Starke Sparquote!', desc: `${s.savingsRate}% eures Einkommens wird gespart — davon ${s.investRate}% in Investitionen (${fmt(s.totalInvestments)}/Mo).` });
+        tips.push({ icon: 'good', title: 'Starke Sparquote!', desc: `${s.savingsRate}% eures Einkommens wird gespart \u2014 davon ${s.investRate}% in Investitionen (${fmt(s.totalInvestments)}/Mo).` });
       } else {
-        tips.push({ icon: 'tip', title: 'Sparquote', desc: `${s.savingsRate}% Sparquote (inkl. Investitionen + Sparen). Ziel: 20% für finanzielle Sicherheit.` });
+        tips.push({ icon: 'tip', title: 'Sparquote', desc: `${s.savingsRate}% Sparquote (inkl. Investitionen + Sparen). Ziel: 20% f\u00FCr finanzielle Sicherheit.` });
       }
 
-      // Housing ratio
-      const housingSection = sections.value.find(s => s.key === 'housing');
-      if (housingSection) {
-        const housingRatio = Math.round(housingSection.total / s.totalIncome * 100);
+      // Housing ratio from Revolut Wohnung subgroup
+      const revolut = accountSections.value.find(s => s.key === 'Revolut');
+      const wohnungGrp = revolut?.subgroups.find(g => g.name === 'Wohnung');
+      if (wohnungGrp) {
+        const housingRatio = Math.round(wohnungGrp.total / s.totalIncome * 100);
         if (housingRatio > 35) {
-          tips.push({ icon: 'warn', title: 'Hohe Wohnkosten', desc: `${housingRatio}% des Einkommens gehen für Wohnen drauf. Empfohlen: max. 30-35%.` });
+          tips.push({ icon: 'warn', title: 'Hohe Wohnkosten', desc: `${housingRatio}% des Einkommens gehen f\u00FCr Wohnen drauf. Empfohlen: max. 30-35%.` });
         } else {
-          tips.push({ icon: 'good', title: 'Wohnkosten im Rahmen', desc: `${housingRatio}% für Wohnung liegt im empfohlenen Bereich.` });
+          tips.push({ icon: 'good', title: 'Wohnkosten im Rahmen', desc: `${housingRatio}% f\u00FCr Wohnung liegt im empfohlenen Bereich.` });
         }
       }
 
-      // Fun money balance
-      const names = Object.keys(s.funMoney);
+      const names = Object.keys(s.funMoneyNet);
       if (names.length === 2) {
-        const diff = Math.abs(s.funMoney[names[0]] - s.funMoney[names[1]]);
+        const diff = Math.abs(s.funMoneyNet[names[0]] - s.funMoneyNet[names[1]]);
         if (diff < 50) {
           tips.push({ icon: 'good', title: 'Faire Aufteilung', desc: `Nur ${fmt(diff)} Unterschied beim Spast Geld. Das ist ausgewogen!` });
         }
       }
 
-      // 50/30/20 Rule
-      const needsRatio = Math.round((s.totalExpenses - (s.funMoney[names[0]] || 0) - (s.funMoney[names[1]] || 0)) / s.totalIncome * 100);
-      tips.push({ icon: 'tip', title: '50/30/20 Regel', desc: `Fixkosten: ~${needsRatio}% (Ziel: 50%), Spast: ~${100 - needsRatio - s.savingsRate}% (Ziel: 30%), Sparen: ~${s.savingsRate}% (Ziel: 20%)` });
-
       return tips;
     });
 
-    // Chart data for donut
+    // Chart data for donut (by account)
     const chartData = computed(() => {
-      if (!sections.value.length) return null;
-      const expSections = sections.value.filter(s => s.key !== 'income');
+      if (!accountSections.value.length) return null;
       return {
-        labels: expSections.map(s => s.label),
-        values: expSections.map(s => Math.round(s.total * 100) / 100),
-        colors: ['#5856d6', '#ff3b30', '#ff9500', '#5ac8fa', '#ff2d55', '#ff9500'],
+        labels: accountSections.value.map(s => s.label),
+        values: accountSections.value.map(s => s.total),
+        colors: accountSections.value.map(s => s.color),
       };
     });
 
@@ -343,7 +415,7 @@ const DashboardView = {
       return n.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' });
     }
 
-    return { sections, summaryData, insights, fmt, donutCanvas, barCanvas };
+    return { accountSections, summaryData, insights, fmt, donutCanvas, barCanvas };
   },
   template: `
     <div v-if="!data" style="text-align:center;padding:60px;color:var(--text-muted)">
@@ -487,41 +559,87 @@ const DashboardView = {
         </div>
       </div>
 
-      <!-- Budget Sections -->
-      <div class="section-group" v-for="section in sections" :key="section.key">
-        <div class="section-header" :class="section.cssClass">
-          <span>{{ section.label }}</span>
-          <span class="section-total">{{ fmt(section.total) }}/Mo</span>
+      <!-- Budget by Account -->
+      <div v-for="bank in accountSections" :key="bank.key" style="margin:16px 0">
+        <!-- Bank Header -->
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 16px;border-radius:14px 14px 0 0;font-weight:700"
+             :style="{background: bank.color + '18', borderBottom: '2px solid ' + bank.color + '40'}">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-size:20px">{{ bank.icon }}</span>
+            <span style="font-size:15px">{{ bank.label }}</span>
+            <span style="font-size:12px;opacity:0.6;font-weight:500">{{ bank.pct }}%</span>
+          </div>
+          <div style="text-align:right">
+            <div style="font-size:16px;font-variant-numeric:tabular-nums">{{ fmt(bank.total) }}<span style="font-size:11px;opacity:0.5">/Mo</span></div>
+            <div style="font-size:11px;opacity:0.5;font-weight:400">{{ fmt(bank.total * 12) }}/Jahr</div>
+          </div>
         </div>
-        <div class="table-scroll">
-          <table class="budget-table">
-            <thead>
-              <tr>
-                <th style="width:35%">Kategorie</th>
-                <th v-for="p in data.persons" :key="p.name">{{ p.name }}</th>
-                <th>Gesamt</th>
-                <th>Jahr</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="(row, idx) in section.rows" :key="idx"
-                  :class="{ 'row-parent': row.type === 'parent', 'row-child': row.type === 'child' }">
-                <td>{{ row.name }}</td>
-                <td v-for="p in data.persons" :key="p.name"
-                    :class="{ 'amount-zero': (row.splits[p.name] || 0) === 0 }">
-                  {{ fmt(row.splits[p.name] || 0) }}
-                </td>
-                <td>{{ fmt(row.amount) }}</td>
-                <td>
-                  {{ fmt(row.amount * 12) }}
-                  <div style="font-size:10px;color:var(--text-muted);font-weight:400" v-for="p in data.persons" :key="'yr-'+p.name">
-                    {{ p.name }}: {{ fmt((row.splits[p.name] || 0) * 12) }}
-                  </div>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+
+        <!-- Per-person splits for bank -->
+        <div style="display:flex;gap:0;background:var(--card-bg);border-left:1px solid var(--border);border-right:1px solid var(--border)">
+          <div v-for="p in data.persons" :key="'bank-split-'+bank.key+'-'+p.name"
+               style="flex:1;padding:8px 16px;font-size:12px;display:flex;justify-content:space-between;border-right:1px solid var(--border)">
+            <span style="color:var(--text-muted)">{{ p.name }}</span>
+            <span style="font-weight:700;font-variant-numeric:tabular-nums">{{ fmt(bank.splits[p.name]) }}</span>
+          </div>
         </div>
+
+        <!-- Subgroups (e.g. Revolut Auto, Revolut Wohnung) -->
+        <div v-for="grp in bank.subgroups" :key="'grp-'+bank.key+'-'+grp.name"
+             style="background:var(--card-bg);border-left:1px solid var(--border);border-right:1px solid var(--border)">
+          <!-- Subgroup header -->
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-top:1px solid var(--border)"
+               :style="{background: bank.color + '08'}">
+            <div style="display:flex;align-items:center;gap:6px">
+              <div style="width:3px;height:16px;border-radius:2px" :style="{background: bank.color}"></div>
+              <span style="font-weight:700;font-size:13px">{{ grp.name }}</span>
+              <span style="font-size:11px;color:var(--text-muted)">{{ grp.pct }}%</span>
+            </div>
+            <div style="font-weight:700;font-size:13px;font-variant-numeric:tabular-nums">{{ fmt(grp.total) }}</div>
+          </div>
+          <!-- Subgroup items -->
+          <div v-for="item in grp.items" :key="'grp-item-'+item.name"
+               style="display:flex;justify-content:space-between;align-items:center;padding:6px 16px 6px 35px;border-top:1px solid var(--border);font-size:12px">
+            <div style="flex:1;min-width:0">
+              <span style="color:var(--text-secondary)">{{ item.name }}</span>
+              <span style="color:var(--text-muted);font-size:10px;margin-left:6px">{{ item.pct }}%</span>
+            </div>
+            <div style="display:flex;gap:12px;align-items:center;flex-shrink:0">
+              <span v-for="p in data.persons" :key="'gi-'+item.name+'-'+p.name"
+                    style="font-size:11px;color:var(--text-muted);font-variant-numeric:tabular-nums;min-width:60px;text-align:right">
+                {{ fmt(item.splits[p.name] || 0) }}
+              </span>
+              <span style="font-weight:600;font-variant-numeric:tabular-nums;min-width:70px;text-align:right">{{ fmt(item.amount) }}</span>
+            </div>
+          </div>
+          <!-- Subgroup person totals -->
+          <div style="display:flex;gap:0;border-top:1px solid var(--border)" :style="{background: bank.color + '06'}">
+            <div v-for="p in data.persons" :key="'grp-total-'+grp.name+'-'+p.name"
+                 style="flex:1;padding:4px 16px;font-size:11px;display:flex;justify-content:space-between;border-right:1px solid var(--border)">
+              <span style="color:var(--text-muted)">{{ p.name }}</span>
+              <span style="font-weight:600;font-variant-numeric:tabular-nums">{{ fmt(grp.splits[p.name]) }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Direct items (not in a subgroup) -->
+        <div v-for="item in bank.directItems" :key="'direct-'+bank.key+'-'+item.name"
+             style="display:flex;justify-content:space-between;align-items:center;padding:8px 16px;background:var(--card-bg);border:1px solid var(--border);border-top:none;font-size:13px">
+          <div style="flex:1;min-width:0">
+            <span>{{ item.name }}</span>
+            <span style="color:var(--text-muted);font-size:11px;margin-left:6px">{{ item.pct }}%</span>
+          </div>
+          <div style="display:flex;gap:12px;align-items:center;flex-shrink:0">
+            <span v-for="p in data.persons" :key="'di-'+item.name+'-'+p.name"
+                  style="font-size:11px;color:var(--text-muted);font-variant-numeric:tabular-nums;min-width:60px;text-align:right">
+              {{ fmt(item.splits[p.name] || 0) }}
+            </span>
+            <span style="font-weight:700;font-variant-numeric:tabular-nums;min-width:70px;text-align:right">{{ fmt(item.amount) }}</span>
+          </div>
+        </div>
+
+        <!-- Bottom rounded corners -->
+        <div style="height:4px;border-radius:0 0 14px 14px;background:var(--card-bg);border:1px solid var(--border);border-top:none"></div>
       </div>
     </div>
   `

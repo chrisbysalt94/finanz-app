@@ -391,6 +391,11 @@ const SettingsView = {
       return item.split_type === 'custom' ? 'Eigene %' : 'Gehaltsabh.';
     }
 
+    function parseNum(val) {
+      if (typeof val === 'number') return val;
+      return parseFloat(String(val).replace(',', '.')) || 0;
+    }
+
     function fmt(n) {
       return parseFloat(n).toLocaleString('de-DE', { style: 'currency', currency: 'EUR' });
     }
@@ -635,7 +640,7 @@ const SettingsView = {
 
           <div class="field-group mb-8" v-if="editingItem.amount_type === 'percent'">
             <div class="field-label">Prozent (vom Einkommen {{ fmt(data.totalIncome) }})</div>
-            <input class="setting-input" style="width:100%" type="number" step="0.1"
+            <input class="setting-input" style="width:100%" type="number" step="0.01"
                    v-model.number="editingItem.amount_percent">
           </div>
 
@@ -761,7 +766,7 @@ const SettingsView = {
 
           <div class="field-group mb-8" v-if="newItem.amount_type === 'percent'">
             <div class="field-label">Prozent (vom Einkommen {{ fmt(data.totalIncome) }})</div>
-            <input class="setting-input" style="width:100%" type="number" step="0.1"
+            <input class="setting-input" style="width:100%" type="number" step="0.01"
                    v-model.number="newItem.amount_percent">
           </div>
 
