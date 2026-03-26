@@ -160,6 +160,19 @@ router.get('/computed', (req, res) => {
     }
   }
 
+  // Add savings amounts to Revolut Sparkonto transfers
+  for (const p of persons) {
+    if ((p.savings_amount || 0) > 0) {
+      const savingsBank = 'Revolut';
+      transferMap[p.name][savingsBank] = (transferMap[p.name][savingsBank] || 0) + p.savings_amount;
+      if (!transferBreakdown[p.name][savingsBank]) transferBreakdown[p.name][savingsBank] = [];
+      transferBreakdown[p.name][savingsBank].push({
+        category: `Sparkonto ${p.name}`,
+        amount: Math.round(p.savings_amount * 100) / 100,
+      });
+    }
+  }
+
   const computedTransfers = [];
   for (const p of persons) {
     for (const [bank, amount] of Object.entries(transferMap[p.name])) {
@@ -187,6 +200,14 @@ router.get('/computed', (req, res) => {
     pocketTotals[pocket] = (pocketTotals[pocket] || 0) + item.amount_total;
   }
 
+  // Add savings to Revolut pockets (Sparkonten)
+  for (const p of persons) {
+    if ((p.savings_amount || 0) > 0) {
+      const pocketName = `Sparkonto ${p.name}`;
+      pocketTotals[pocketName] = (pocketTotals[pocketName] || 0) + p.savings_amount;
+    }
+  }
+
   const computedStandingOrders = Object.entries(pocketTotals).map(([category, amount]) => ({
     bank: 'Revolut',
     category,
@@ -201,17 +222,33 @@ router.get('/computed', (req, res) => {
   });
 });
 
-// Helper: parse target_account like "Revolut Urlaub" or "TradeRepublic"
+// Helper: parse target_account like "Zusammen -> Revolut Wohnung", "Getrennt -> Altersvorsorge", or just "Revolut Urlaub"
 function parseTargetAccount(target) {
   if (!target) return { bank: null, pocket: null };
-  const dest = target.trim();
+  let dest = target.trim();
 
+  // Strip "Zusammen -> " or "Getrennt -> " prefix
+  const arrowMatch = dest.match(/^(?:Zusammen|Getrennt)\s*->\s*(.+)$/i);
+  if (arrowMatch) {
+    dest = arrowMatch[1].trim();
+  }
+
+  // Match Revolut / Revolute
   if (/^Revolute?\b/i.test(dest)) {
     const pocket = dest.replace(/^Revolute?\s*/i, '').trim() || null;
     return { bank: 'Revolut', pocket };
   }
+  // Match TradeRepublic
   if (/^TradeRepublic/i.test(dest)) {
     return { bank: 'TradeRepublic', pocket: null };
+  }
+  // Match MVB, Barclay or other banks
+  if (/MVB|Barclay/i.test(dest)) {
+    return { bank: 'Revolut', pocket: dest };
+  }
+  // For "Getrennt -> Altersvorsorge" etc. - personal/separate items
+  if (arrowMatch) {
+    return { bank: 'Getrennt', pocket: dest };
   }
   return { bank: null, pocket: null };
 }

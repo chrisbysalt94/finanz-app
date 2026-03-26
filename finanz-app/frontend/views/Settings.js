@@ -13,26 +13,40 @@ const SettingsView = {
 
     const persons = computed(() => props.data?.persons || []);
 
+    // Parse target_account into a display-friendly account name
+    function getAccountGroup(target) {
+      if (!target) return { key: '_none', label: 'Persönlich / Kein Konto', icon: '\u{1F464}' };
+      const dest = target.trim();
+      // Parse "Zusammen -> Revolut Wohnung" or "Getrennt -> Altersvorsorge"
+      const arrow = dest.indexOf('->');
+      let accountPart = arrow >= 0 ? dest.substring(arrow + 2).trim() : dest;
+      const transferType = arrow >= 0 ? dest.substring(0, arrow).trim() : '';
+
+      // Normalize Revolute -> Revolut
+      accountPart = accountPart.replace(/^Revolute?\s*/i, 'Revolut ').replace(/^Revolut\s*$/, 'Revolut').trim();
+
+      const icon = accountPart.toLowerCase().startsWith('revolut') ? '\u{1F4B3}'
+        : accountPart.toLowerCase().startsWith('traderepublic') ? '\u{1F4C8}'
+        : accountPart.toLowerCase().includes('mvb') || accountPart.toLowerCase().includes('barclay') ? '\u{1F3E6}'
+        : '\u{1F3E6}';
+
+      const prefix = transferType ? (transferType + ' → ') : '';
+      return { key: accountPart, label: prefix + accountPart, icon };
+    }
+
     const budgetItems = computed(() => {
       if (!props.data) return [];
       const { items } = props.data;
       const query = searchQuery.value.toLowerCase().trim();
 
-      const sectionLabels = {
-        income: 'Einkommen', deductions: 'Abzüge',
-        fixed: 'Fixkosten', auto: 'Auto', contracts: 'Verträge', housing: 'Wohnung',
-        savings: 'Rücklagen', variable: 'Variabel',
-      };
-      const sectionIcons = {
-        income: '\u{1F4B0}', deductions: '\u{1F4E4}',
-        fixed: '\u{1F4CB}', auto: '\u{1F697}', contracts: '\u{1F4DD}', housing: '\u{1F3E0}',
-        savings: '\u{1F3AF}', variable: '\u{1F4B8}',
-      };
+      const groups = {};
+      // Define a sort order for account groups
+      const accountOrder = ['Revolut Wohnung', 'Revolut', 'Revolut Haushalt', 'Revolut Geschenke',
+        'Revolut Health', 'Revolut Verträge', 'Revolut Auto', 'Revolut Tanken',
+        'TradeRepublic', 'MVB + Barclay', '_none'];
 
-      const sections = {};
       for (const item of items) {
-        const sec = item.section || 'fixed';
-        if (sec === 'income') continue;
+        if ((item.section || 'fixed') === 'income') continue;
 
         // Filter by search query
         if (query) {
@@ -43,14 +57,25 @@ const SettingsView = {
           if (!matches) continue;
         }
 
-        if (!sections[sec]) sections[sec] = { label: sectionLabels[sec] || sec, icon: sectionIcons[sec] || '\u{1F4C1}', items: [] };
-        sections[sec].items.push(item);
+        const acc = getAccountGroup(item.target_account);
+        if (!groups[acc.key]) {
+          groups[acc.key] = { label: acc.label, icon: acc.icon, items: [], total: 0 };
+        }
+        groups[acc.key].items.push(item);
+        groups[acc.key].total += item.amount_total || 0;
       }
 
-      return Object.entries(sections)
+      // Sort groups by predefined order, unknowns at end
+      return Object.entries(groups)
+        .sort(([a], [b]) => {
+          const ai = accountOrder.indexOf(a);
+          const bi = accountOrder.indexOf(b);
+          return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
+        })
         .filter(([key, val]) => val.items.length > 0)
         .map(([key, val]) => ({
           key, label: val.label, icon: val.icon, items: val.items,
+          total: Math.round(val.total * 100) / 100,
         }));
     });
 
@@ -229,12 +254,22 @@ const SettingsView = {
       editingItem.value = null;
     }
 
-    function openAdd(sectionKey) {
+    function openAdd(accountKey) {
       const customParsed = {};
       if (props.data?.persons) {
         for (const p of props.data.persons) {
           customParsed[p.name] = 50;
         }
+      }
+      // Try to guess a default target_account from the account group
+      let defaultTarget = '';
+      if (accountKey !== '_none') {
+        // Find an existing item in this group to copy its target_account format
+        const existing = props.data?.items?.find(i => {
+          const acc = getAccountGroup(i.target_account);
+          return acc.key === accountKey;
+        });
+        defaultTarget = existing?.target_account || '';
       }
       newItem.value = {
         category_name: '',
@@ -243,9 +278,9 @@ const SettingsView = {
         amount_percent: null,
         split_type: 'proportional',
         _customParsed: customParsed,
-        target_account: '',
+        target_account: defaultTarget,
         notes: '',
-        section: sectionKey,
+        section: 'fixed', // default section for new items
       };
       addingItem.value = true;
     }
@@ -368,7 +403,7 @@ const SettingsView = {
       searchQuery, addingItem, newItem, editPreview, addPreview, funMoneyPreview,
       debounceIncome, debounceSecondIncome, debounceInvest, debounceSavings,
       openEdit, saveEdit, openAdd, saveNewItem,
-      getFormulaText, getSplitLabel, fmt,
+      getFormulaText, getSplitLabel, getAccountGroup, fmt,
       suggestedInvest, investPct,
     };
   },
@@ -501,10 +536,11 @@ const SettingsView = {
                v-model="searchQuery">
       </div>
 
-      <!-- Budget Items by Section -->
+      <!-- Budget Items by Account -->
       <div class="settings-section" v-for="section in budgetItems" :key="section.key">
-        <div class="settings-title">
-          <span class="settings-title-icon">{{ section.icon }}</span> {{ section.label }}
+        <div class="settings-title" style="display:flex;justify-content:space-between;align-items:center">
+          <span><span class="settings-title-icon">{{ section.icon }}</span> {{ section.label }}</span>
+          <span style="font-size:13px;font-weight:700;color:var(--text-secondary);font-variant-numeric:tabular-nums">{{ fmt(section.total) }}</span>
         </div>
         <div class="budget-item-edit" v-for="item in section.items" :key="item.id">
           <div class="flex-between">
@@ -646,6 +682,19 @@ const SettingsView = {
             <input class="setting-input" style="width:100%;text-align:left" type="text"
                    placeholder="z.B. Urlaub, Streaming..."
                    v-model="newItem.category_name">
+          </div>
+
+          <div class="field-group mb-8">
+            <div class="field-label">Kategorie</div>
+            <select class="field-select" style="width:100%" v-model="newItem.section">
+              <option value="deductions">Abz\u00FCge</option>
+              <option value="savings">R\u00FCcklagen</option>
+              <option value="fixed">Fixkosten</option>
+              <option value="auto">Auto</option>
+              <option value="contracts">Vertr\u00E4ge</option>
+              <option value="housing">Wohnung</option>
+              <option value="variable">Variabel</option>
+            </select>
           </div>
 
           <!-- Amount type -->
