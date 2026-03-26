@@ -79,11 +79,11 @@ const SettingsView = {
         }));
     });
 
-    // Live preview for edit modal
+    // Live preview for edit modal — includes Spaßgeld impact per person
     const editPreview = computed(() => {
       if (!editingItem.value || !props.data) return null;
       const item = editingItem.value;
-      const { persons: ps, totalIncome } = props.data;
+      const { persons: ps, totalIncome, items } = props.data;
 
       let effectiveTotal = parseFloat(item.amount_total) || 0;
       if (item.amount_type === 'percent' && item.amount_percent != null) {
@@ -102,8 +102,17 @@ const SettingsView = {
         }
       }
 
+      // Calculate Spaßgeld impact: difference between new and old splits
+      const funImpact = {};
+      const originalItem = items.find(i => i.id === item.id);
+      for (const p of ps) {
+        const oldSplit = originalItem?.splits?.[p.name] || 0;
+        const newSplit = splits[p.name] || 0;
+        funImpact[p.name] = Math.round((oldSplit - newSplit) * 100) / 100; // positive = more fun money
+      }
+
       const pctOfIncome = totalIncome > 0 ? (effectiveTotal / totalIncome * 100).toFixed(1) : '0.0';
-      return { effectiveTotal, splits, pctOfIncome };
+      return { effectiveTotal, splits, pctOfIncome, funImpact };
     });
 
     // Live preview for add modal
@@ -118,6 +127,7 @@ const SettingsView = {
       }
 
       const splits = {};
+      const funImpact = {};
       for (const p of ps) {
         if (item.split_type === 'custom' && item._customParsed) {
           const pct = item._customParsed[p.name] || 0;
@@ -127,10 +137,11 @@ const SettingsView = {
           const ratio = totalIncome > 0 ? personIncome / totalIncome : 0;
           splits[p.name] = Math.round(effectiveTotal * ratio * 100) / 100;
         }
+        funImpact[p.name] = -splits[p.name]; // new item = always reduces fun money
       }
 
       const pctOfIncome = totalIncome > 0 ? (effectiveTotal / totalIncome * 100).toFixed(1) : '0.0';
-      return { effectiveTotal, splits, pctOfIncome };
+      return { effectiveTotal, splits, pctOfIncome, funImpact };
     });
 
     async function updateIncome(personId, value) {
@@ -508,7 +519,7 @@ const SettingsView = {
       </div>
 
       <!-- Spaßgeld Live Preview (sticky) -->
-      <div v-if="funMoneyPreview" style="position:sticky;top:0;z-index:50;margin:12px 16px 0;padding:14px 16px;background:linear-gradient(135deg, rgba(52,199,89,0.12), rgba(52,199,89,0.06));border-radius:14px;border:1px solid rgba(52,199,89,0.2);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px)">
+      <div v-if="funMoneyPreview" style="margin:12px 16px 0;padding:14px 16px;background:linear-gradient(135deg, rgba(52,199,89,0.12), rgba(52,199,89,0.06));border-radius:14px;border:1px solid rgba(52,199,89,0.2)">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
           <span style="font-size:13px;font-weight:700;color:var(--green)">💰 Spast Geld</span>
           <span style="font-size:15px;font-weight:800;color:var(--green)">{{ fmt(funMoneyPreview.totalFun) }}</span>
@@ -651,6 +662,19 @@ const SettingsView = {
             </div>
           </div>
 
+          <!-- Spaßgeld Impact -->
+          <div v-if="editPreview && editPreview.funImpact" style="padding:10px 12px;background:rgba(255,204,0,0.08);border-radius:10px;border:1px solid rgba(255,204,0,0.2);margin-bottom:12px">
+            <div style="font-size:11px;color:#ffcc00;margin-bottom:6px;font-weight:600;text-transform:uppercase;letter-spacing:0.3px">\u{1F4B0} Spast Geld Auswirkung</div>
+            <div v-for="p in data.persons" :key="'impact-'+p.name"
+                 style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:3px">
+              <span style="font-weight:600">{{ p.name }}</span>
+              <span style="font-weight:800;font-variant-numeric:tabular-nums"
+                    :style="{color: editPreview.funImpact[p.name] > 0 ? 'var(--green)' : editPreview.funImpact[p.name] < 0 ? '#ff3b30' : 'var(--text-muted)'}">
+                {{ editPreview.funImpact[p.name] > 0 ? '+' : '' }}{{ fmt(editPreview.funImpact[p.name]) }} Spast Geld
+              </span>
+            </div>
+          </div>
+
           <div class="field-group mb-8">
             <div class="field-label">Zielkonto</div>
             <input class="setting-input" style="width:100%" type="text"
@@ -751,6 +775,18 @@ const SettingsView = {
             </div>
             <div style="font-size:11px;color:var(--text-muted);margin-top:6px;text-align:right">
               {{ addPreview.pctOfIncome }}% vom Einkommen ({{ fmt(data.totalIncome) }})
+            </div>
+          </div>
+
+          <!-- Spaßgeld Impact for add -->
+          <div v-if="addPreview && addPreview.funImpact && addPreview.effectiveTotal > 0" style="padding:10px 12px;background:rgba(255,204,0,0.08);border-radius:10px;border:1px solid rgba(255,204,0,0.2);margin-bottom:12px">
+            <div style="font-size:11px;color:#ffcc00;margin-bottom:6px;font-weight:600;text-transform:uppercase;letter-spacing:0.3px">\u{1F4B0} Spast Geld Auswirkung</div>
+            <div v-for="p in data.persons" :key="'add-impact-'+p.name"
+                 style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:3px">
+              <span style="font-weight:600">{{ p.name }}</span>
+              <span style="font-weight:800;font-variant-numeric:tabular-nums;color:#ff3b30">
+                {{ fmt(addPreview.funImpact[p.name]) }} Spast Geld
+              </span>
             </div>
           </div>
 
