@@ -17,9 +17,9 @@ const seedAll = db.transaction(() => {
   // === PERSONS (with investment amounts) ===
   insertPerson.run('Chris', 3906.60);
   insertPerson.run('Yana', 2500.00);
-  // Set invest_amount: ~33% of salary each
-  db.prepare('UPDATE persons SET invest_amount = ? WHERE name = ?').run(1300, 'Chris');
-  db.prepare('UPDATE persons SET invest_amount = ? WHERE name = ?').run(800, 'Yana');
+  // Set invest_amount and savings_amount per person
+  db.prepare('UPDATE persons SET invest_amount = ?, savings_amount = ? WHERE name = ?').run(1300, 100, 'Chris');
+  db.prepare('UPDATE persons SET invest_amount = ?, savings_amount = ? WHERE name = ?').run(800, 50, 'Yana');
 
   // === CATEGORIES & BUDGET ITEMS ===
 
@@ -62,8 +62,7 @@ const seedAll = db.transaction(() => {
   const essen = insertCategory.run('Essen, Medikamente, etc.', fixed, '#f39c12', 31, 'fixed').lastInsertRowid;
   insertBudgetItem.run(essen, 700.00, 'proportional', null, 'Zusammen -> Revolut', null);
 
-  const sparenGross = insertCategory.run('Sparen für große Dinge / Klamotten / Bücher etc.', fixed, '#f39c12', 32, 'fixed').lastInsertRowid;
-  insertBudgetItem.run(sparenGross, 150.00, 'proportional', null, 'Getrennt -> Revolut Spar Konto', null);
+  // "Sparen für große Sachen" is now managed per person in persons.savings_amount
 
   const geschenke = insertCategory.run('Geschenke etc.', fixed, '#f39c12', 33, 'fixed').lastInsertRowid;
   insertBudgetItem.run(geschenke, 75.00, 'proportional', null, 'Zusammen -> Revolute Geschenke', null);

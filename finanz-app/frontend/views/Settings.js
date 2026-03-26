@@ -58,11 +58,11 @@ const SettingsView = {
     const editPreview = computed(() => {
       if (!editingItem.value || !props.data) return null;
       const item = editingItem.value;
-      const { persons: ps, adjustedTotal } = props.data;
+      const { persons: ps, totalIncome } = props.data;
 
       let effectiveTotal = parseFloat(item.amount_total) || 0;
       if (item.amount_type === 'percent' && item.amount_percent != null) {
-        effectiveTotal = Math.round(adjustedTotal * (parseFloat(item.amount_percent) || 0) / 100 * 100) / 100;
+        effectiveTotal = Math.round(totalIncome * (parseFloat(item.amount_percent) || 0) / 100 * 100) / 100;
       }
 
       const splits = {};
@@ -71,25 +71,25 @@ const SettingsView = {
           const pct = item._customParsed[p.name] || 0;
           splits[p.name] = Math.round(effectiveTotal * pct / 100 * 100) / 100;
         } else {
-          const adjIncome = p.net_income + (p.second_income || 0) - (p.invest_amount || 0);
-          const ratio = adjustedTotal > 0 ? adjIncome / adjustedTotal : 0;
+          const personIncome = p.net_income + (p.second_income || 0);
+          const ratio = totalIncome > 0 ? personIncome / totalIncome : 0;
           splits[p.name] = Math.round(effectiveTotal * ratio * 100) / 100;
         }
       }
 
-      const pctOfAvailable = adjustedTotal > 0 ? (effectiveTotal / adjustedTotal * 100).toFixed(1) : '0.0';
-      return { effectiveTotal, splits, pctOfAvailable };
+      const pctOfIncome = totalIncome > 0 ? (effectiveTotal / totalIncome * 100).toFixed(1) : '0.0';
+      return { effectiveTotal, splits, pctOfIncome };
     });
 
     // Live preview for add modal
     const addPreview = computed(() => {
       if (!newItem.value || !props.data) return null;
       const item = newItem.value;
-      const { persons: ps, adjustedTotal } = props.data;
+      const { persons: ps, totalIncome } = props.data;
 
       let effectiveTotal = parseFloat(item.amount_total) || 0;
       if (item.amount_type === 'percent' && item.amount_percent != null) {
-        effectiveTotal = Math.round(adjustedTotal * (parseFloat(item.amount_percent) || 0) / 100 * 100) / 100;
+        effectiveTotal = Math.round(totalIncome * (parseFloat(item.amount_percent) || 0) / 100 * 100) / 100;
       }
 
       const splits = {};
@@ -98,14 +98,14 @@ const SettingsView = {
           const pct = item._customParsed[p.name] || 0;
           splits[p.name] = Math.round(effectiveTotal * pct / 100 * 100) / 100;
         } else {
-          const adjIncome = p.net_income + (p.second_income || 0) - (p.invest_amount || 0);
-          const ratio = adjustedTotal > 0 ? adjIncome / adjustedTotal : 0;
+          const personIncome = p.net_income + (p.second_income || 0);
+          const ratio = totalIncome > 0 ? personIncome / totalIncome : 0;
           splits[p.name] = Math.round(effectiveTotal * ratio * 100) / 100;
         }
       }
 
-      const pctOfAvailable = adjustedTotal > 0 ? (effectiveTotal / adjustedTotal * 100).toFixed(1) : '0.0';
-      return { effectiveTotal, splits, pctOfAvailable };
+      const pctOfIncome = totalIncome > 0 ? (effectiveTotal / totalIncome * 100).toFixed(1) : '0.0';
+      return { effectiveTotal, splits, pctOfIncome };
     });
 
     async function updateIncome(personId, value) {
@@ -133,6 +133,16 @@ const SettingsView = {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ invest_amount: parseFloat(value) || 0 }),
+      });
+      showToast('Gespeichert');
+      emit('refresh');
+    }
+
+    async function updateSavings(personId, value) {
+      await fetch(`api/persons/${personId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ savings_amount: parseFloat(value) || 0 }),
       });
       showToast('Gespeichert');
       emit('refresh');
@@ -268,10 +278,10 @@ const SettingsView = {
         }
       }
       if (!props.data) return 'Gehaltsabh\u00E4ngig';
-      const { persons, adjustedTotal } = props.data;
+      const { persons, totalIncome } = props.data;
       const pcts = persons.map(p => {
-        const adj = p.net_income - (p.invest_amount || 0);
-        const pct = adjustedTotal > 0 ? ((adj / adjustedTotal) * 100).toFixed(1) : 0;
+        const income = p.net_income + (p.second_income || 0);
+        const pct = totalIncome > 0 ? ((income / totalIncome) * 100).toFixed(1) : 0;
         return `${p.name}: ${pct}%`;
       });
       return pcts.join(' \u00B7 ');
@@ -308,6 +318,12 @@ const SettingsView = {
       investTimer = setTimeout(() => updateInvestment(personId, event.target.value), 800);
     }
 
+    let savingsTimer = null;
+    function debounceSavings(personId, event) {
+      clearTimeout(savingsTimer);
+      savingsTimer = setTimeout(() => updateSavings(personId, event.target.value), 800);
+    }
+
     // Auto-show second job section if any person has second_income > 0
     if (persons.value.some(p => (p.second_income || 0) > 0)) {
       showSecondJob.value = true;
@@ -316,7 +332,7 @@ const SettingsView = {
     return {
       persons, budgetItems, toast, editingItem, showSecondJob,
       searchQuery, addingItem, newItem, editPreview, addPreview,
-      debounceIncome, debounceSecondIncome, debounceInvest,
+      debounceIncome, debounceSecondIncome, debounceInvest, debounceSavings,
       openEdit, saveEdit, openAdd, saveNewItem,
       getFormulaText, getSplitLabel, fmt,
       suggestedInvest, investPct,
@@ -386,40 +402,39 @@ const SettingsView = {
           <span class="settings-title-icon">\u{1F4C8}</span> Investitionen
         </div>
         <div style="padding:0 16px 12px;font-size:12px;color:var(--text-muted)">
-          Investitionen werden vom Gehalt abgezogen, bevor die Aufteilung berechnet wird.
-          Wer mehr investiert, wird bei den gemeinsamen Kosten entlastet.
+          Individuelle Investitionen pro Person. Werden wie andere Posten vom Gehalt abgezogen.
         </div>
         <div class="setting-row" v-for="p in persons" :key="'invest-'+p.id">
           <div style="flex:1;min-width:0">
             <div class="setting-label">{{ p.name }}</div>
             <div class="setting-sub">
-              {{ investPct(p) }}% vom Gehalt \u00B7 Vorschlag (30%): {{ fmt(suggestedInvest(p)) }}
-            </div>
-            <div class="setting-sub" style="color:var(--text-secondary);margin-top:2px">
-              Verf\u00FCgbar nach Investition: {{ fmt(p.net_income - (p.invest_amount || 0)) }}
+              {{ investPct(p) }}% vom Gehalt
             </div>
           </div>
           <input class="setting-input" type="number" step="1"
                  :value="p.invest_amount || 0"
                  @input="debounceInvest(p.id, $event)">
         </div>
-        <div class="setting-row" v-if="data.adjustedTotal > 0" style="border:none;padding-top:12px">
-          <div style="display:flex;gap:12px;width:100%">
-            <div v-for="p in persons" :key="'adj-'+p.name" style="flex:1">
-              <div class="setting-sub" style="margin-bottom:4px">Anteil {{ p.name }} (nach Invest)</div>
-              <div style="display:flex;align-items:center;gap:8px">
-                <div style="flex:1;height:6px;background:var(--border);border-radius:3px;overflow:hidden">
-                  <div :style="{
-                    width: ((p.net_income - (p.invest_amount || 0)) / data.adjustedTotal * 100) + '%',
-                    height: '100%',
-                    background: p.name === persons[0]?.name ? 'var(--blue)' : 'var(--purple)',
-                    borderRadius: '3px'
-                  }"></div>
-                </div>
-                <span style="font-weight:700;font-size:13px">{{ ((p.net_income - (p.invest_amount || 0)) / data.adjustedTotal * 100).toFixed(1) }}%</span>
-              </div>
+      </div>
+
+      <!-- Savings Settings -->
+      <div class="settings-section">
+        <div class="settings-title">
+          <span class="settings-title-icon">\u{1F3AF}</span> Sparen f\u00FCr gro\u00DFe Sachen
+        </div>
+        <div style="padding:0 16px 12px;font-size:12px;color:var(--text-muted)">
+          Individuelle Spar-Betr\u00E4ge pro Person. Jeder entscheidet selbst.
+        </div>
+        <div class="setting-row" v-for="p in persons" :key="'savings-'+p.id">
+          <div style="flex:1;min-width:0">
+            <div class="setting-label">{{ p.name }}</div>
+            <div class="setting-sub">
+              {{ p.net_income > 0 ? ((p.savings_amount || 0) / p.net_income * 100).toFixed(1) : '0.0' }}% vom Gehalt
             </div>
           </div>
+          <input class="setting-input" type="number" step="1"
+                 :value="p.savings_amount || 0"
+                 @input="debounceSavings(p.id, $event)">
         </div>
       </div>
 
@@ -454,8 +469,8 @@ const SettingsView = {
                       style="font-variant-numeric:tabular-nums">
                   {{ p.name }}: {{ fmt(item.splits[p.name] || 0) }}
                 </span>
-                <span style="color:var(--text-tertiary)" v-if="data.adjustedTotal > 0">
-                  \u00B7 {{ (item.amount_total / data.adjustedTotal * 100).toFixed(1) }}%
+                <span style="color:var(--text-tertiary)" v-if="data.totalIncome > 0">
+                  \u00B7 {{ (item.amount_total / data.totalIncome * 100).toFixed(1) }}%
                 </span>
               </div>
             </div>
@@ -482,12 +497,12 @@ const SettingsView = {
             <div class="field-label">Betrags-Typ</div>
             <select class="field-select" style="width:100%" v-model="editingItem.amount_type">
               <option value="fixed">Fester Betrag (\u20AC)</option>
-              <option value="percent">Prozent vom Verf\u00FCgbaren</option>
+              <option value="percent">Prozent vom Einkommen</option>
             </select>
           </div>
 
           <div class="field-group mb-8" v-if="editingItem.amount_type === 'percent'">
-            <div class="field-label">Prozent (von {{ fmt(data.adjustedTotal) }})</div>
+            <div class="field-label">Prozent (vom Einkommen {{ fmt(data.totalIncome) }})</div>
             <input class="setting-input" style="width:100%" type="number" step="0.1"
                    v-model.number="editingItem.amount_percent">
           </div>
@@ -520,10 +535,10 @@ const SettingsView = {
                style="padding:12px;background:rgba(108,141,255,0.08);border-radius:10px;border:1px solid rgba(108,141,255,0.15)">
             <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">Formel</div>
             <div style="font-family:monospace;font-size:12px;color:var(--accent)">
-              Anteil = (Gehalt - Invest) / Gesamtverf\u00FCgbar x Betrag
+              Anteil = Gehalt / Gesamteinkommen x Betrag
             </div>
             <div style="font-size:11px;color:var(--text-muted);margin-top:6px" v-if="data">
-              Aktuell: {{ data.persons.map(p => p.name + ': ' + ((p.net_income - (p.invest_amount || 0)) / data.adjustedTotal * 100).toFixed(1) + '%').join(', ') }}
+              Aktuell: {{ data.persons.map(p => p.name + ': ' + ((p.net_income + (p.second_income || 0)) / data.totalIncome * 100).toFixed(1) + '%').join(', ') }}
             </div>
           </div>
 
@@ -540,7 +555,7 @@ const SettingsView = {
               <span style="font-weight:600;font-variant-numeric:tabular-nums">{{ fmt(editPreview.splits[p.name]) }}</span>
             </div>
             <div style="font-size:11px;color:var(--text-muted);margin-top:6px;text-align:right">
-              {{ editPreview.pctOfAvailable }}% vom Verf\u00FCgbaren ({{ fmt(data.adjustedTotal) }})
+              {{ editPreview.pctOfIncome }}% vom Einkommen ({{ fmt(data.totalIncome) }})
             </div>
           </div>
 
@@ -582,12 +597,12 @@ const SettingsView = {
             <div class="field-label">Betrags-Typ</div>
             <select class="field-select" style="width:100%" v-model="newItem.amount_type">
               <option value="fixed">Fester Betrag (\u20AC)</option>
-              <option value="percent">Prozent vom Verf\u00FCgbaren</option>
+              <option value="percent">Prozent vom Einkommen</option>
             </select>
           </div>
 
           <div class="field-group mb-8" v-if="newItem.amount_type === 'percent'">
-            <div class="field-label">Prozent (von {{ fmt(data.adjustedTotal) }})</div>
+            <div class="field-label">Prozent (vom Einkommen {{ fmt(data.totalIncome) }})</div>
             <input class="setting-input" style="width:100%" type="number" step="0.1"
                    v-model.number="newItem.amount_percent">
           </div>
@@ -630,7 +645,7 @@ const SettingsView = {
               <span style="font-weight:600;font-variant-numeric:tabular-nums">{{ fmt(addPreview.splits[p.name]) }}</span>
             </div>
             <div style="font-size:11px;color:var(--text-muted);margin-top:6px;text-align:right">
-              {{ addPreview.pctOfAvailable }}% vom Verf\u00FCgbaren ({{ fmt(data.adjustedTotal) }})
+              {{ addPreview.pctOfIncome }}% vom Einkommen ({{ fmt(data.totalIncome) }})
             </div>
           </div>
 

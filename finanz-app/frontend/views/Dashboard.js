@@ -71,12 +71,20 @@ const DashboardView = {
       if (!props.data) return null;
       const { persons, totalIncome, items } = props.data;
 
-      // Investments come from persons.invest_amount (deducted before split calc)
+      // Investments per person (displayed like other items)
       const personInvestments = {};
       let totalInvestments = 0;
       for (const p of persons) {
         personInvestments[p.name] = p.invest_amount || 0;
         totalInvestments += p.invest_amount || 0;
+      }
+
+      // Savings per person (individual amounts)
+      const personSavings = {};
+      let totalSavingsAmount = 0;
+      for (const p of persons) {
+        personSavings[p.name] = p.savings_amount || 0;
+        totalSavingsAmount += p.savings_amount || 0;
       }
 
       let totalExpenses = 0;
@@ -85,26 +93,40 @@ const DashboardView = {
         personExpenses[p.name] = 0;
       }
 
+      // Deductions (items from 'deductions' section) - tracked separately for display
+      const personDeductions = {};
+      const deductionItems = {};
+      for (const p of persons) {
+        personDeductions[p.name] = 0;
+        deductionItems[p.name] = [];
+      }
+
       for (const item of items) {
         if (item.section === 'income') continue;
         totalExpenses += item.amount_total;
         for (const p of persons) {
-          personExpenses[p.name] += item.splits[p.name] || 0;
+          const amount = item.splits[p.name] || 0;
+          personExpenses[p.name] += amount;
+          if (item.section === 'deductions' && amount > 0) {
+            personDeductions[p.name] += amount;
+            deductionItems[p.name].push({ name: item.category_name, amount });
+          }
         }
       }
 
-      // Fun money = total salary - investments - expenses
+      // Fun money = total salary - investments - savings - expenses
       const funMoney = {};
       for (const p of persons) {
         const totalSalary = p.net_income + (p.second_income || 0);
-        funMoney[p.name] = Math.round((totalSalary - (p.invest_amount || 0) - personExpenses[p.name]) * 100) / 100;
+        funMoney[p.name] = Math.round((totalSalary - (p.invest_amount || 0) - (p.savings_amount || 0) - personExpenses[p.name]) * 100) / 100;
       }
 
       const totalFun = Math.round(Object.values(funMoney).reduce((a, b) => a + b, 0) * 100) / 100;
       totalInvestments = Math.round(totalInvestments * 100) / 100;
-      // True savings = investments + fun money (money left over)
-      const totalSavings = totalFun + totalInvestments;
-      const savingsRate = totalIncome > 0 ? Math.round(totalSavings / totalIncome * 100) : 0;
+      totalSavingsAmount = Math.round(totalSavingsAmount * 100) / 100;
+      // True savings = investments + savings + fun money (money left over)
+      const totalSaved = totalFun + totalInvestments + totalSavingsAmount;
+      const savingsRate = totalIncome > 0 ? Math.round(totalSaved / totalIncome * 100) : 0;
       const investRate = totalIncome > 0 ? Math.round(totalInvestments / totalIncome * 100) : 0;
 
       return {
@@ -112,13 +134,16 @@ const DashboardView = {
         totalExpenses: Math.round(totalExpenses * 100) / 100,
         totalInvestments,
         personInvestments,
+        totalSavingsAmount,
+        personSavings,
         funMoney,
         totalFun,
-        totalSavings,
+        totalSaved,
         savingsRate,
         investRate,
         persons,
         personExpenses,
+        deductionItems,
       };
     });
 
@@ -130,11 +155,11 @@ const DashboardView = {
 
       // Savings rate (investments + fun money)
       if (s.savingsRate < 10) {
-        tips.push({ icon: 'warn', title: 'Niedrige Sparquote', desc: `Eure Sparquote liegt bei ${s.savingsRate}% (inkl. ${fmt(s.totalInvestments)} Investitionen). Ziel: mindestens 20%.` });
+        tips.push({ icon: 'warn', title: 'Niedrige Sparquote', desc: `Eure Sparquote liegt bei ${s.savingsRate}% (inkl. ${fmt(s.totalInvestments)} Investitionen + ${fmt(s.totalSavingsAmount)} Sparen). Ziel: mindestens 20%.` });
       } else if (s.savingsRate >= 20) {
         tips.push({ icon: 'good', title: 'Starke Sparquote!', desc: `${s.savingsRate}% eures Einkommens wird gespart — davon ${s.investRate}% in Investitionen (${fmt(s.totalInvestments)}/Mo).` });
       } else {
-        tips.push({ icon: 'tip', title: 'Sparquote', desc: `${s.savingsRate}% Sparquote (inkl. Investitionen). Ziel: 20% für finanzielle Sicherheit.` });
+        tips.push({ icon: 'tip', title: 'Sparquote', desc: `${s.savingsRate}% Sparquote (inkl. Investitionen + Sparen). Ziel: 20% für finanzielle Sicherheit.` });
       }
 
       // Housing ratio
@@ -153,13 +178,13 @@ const DashboardView = {
       if (names.length === 2) {
         const diff = Math.abs(s.funMoney[names[0]] - s.funMoney[names[1]]);
         if (diff < 50) {
-          tips.push({ icon: 'good', title: 'Faire Aufteilung', desc: `Nur ${fmt(diff)} Unterschied beim Spaß-Geld. Das ist ausgewogen!` });
+          tips.push({ icon: 'good', title: 'Faire Aufteilung', desc: `Nur ${fmt(diff)} Unterschied beim Spast Geld. Das ist ausgewogen!` });
         }
       }
 
       // 50/30/20 Rule
       const needsRatio = Math.round((s.totalExpenses - (s.funMoney[names[0]] || 0) - (s.funMoney[names[1]] || 0)) / s.totalIncome * 100);
-      tips.push({ icon: 'tip', title: '50/30/20 Regel', desc: `Fixkosten: ~${needsRatio}% (Ziel: 50%), Spaß: ~${100 - needsRatio - s.savingsRate}% (Ziel: 30%), Sparen: ~${s.savingsRate}% (Ziel: 20%)` });
+      tips.push({ icon: 'tip', title: '50/30/20 Regel', desc: `Fixkosten: ~${needsRatio}% (Ziel: 50%), Spast: ~${100 - needsRatio - s.savingsRate}% (Ziel: 30%), Sparen: ~${s.savingsRate}% (Ziel: 20%)` });
 
       return tips;
     });
@@ -235,7 +260,7 @@ const DashboardView = {
                 borderSkipped: false,
               },
               {
-                label: 'Spaß Geld',
+                label: 'Spast Geld',
                 data: persons.map(p => Math.round(fm[p.name] * 100) / 100),
                 backgroundColor: 'rgba(52, 199, 89, 0.75)',
                 borderRadius: 6,
@@ -335,17 +360,34 @@ const DashboardView = {
             {{ name }}: {{ fmt(val) }}
           </div>
         </div>
+        <div class="summary-card card-invest">
+          <div class="summary-card-label">Sparen für große Sachen</div>
+          <div class="summary-card-value" style="color:var(--purple)">{{ fmt(summaryData.totalSavingsAmount) }}</div>
+          <div class="summary-card-sub" v-for="(val, name) in summaryData.personSavings" :key="'sav-'+name">
+            {{ name }}: {{ fmt(val) }}
+          </div>
+        </div>
         <div class="summary-card card-savings">
           <div class="summary-card-label">Sparquote</div>
           <div class="summary-card-value" style="color:var(--green)">{{ summaryData.savingsRate }}%</div>
-          <div class="summary-card-sub">{{ fmt(summaryData.totalSavings) }}/Mo gespart</div>
-          <div class="summary-card-sub" style="font-size:10px;opacity:0.7">Investitionen + Spaß Geld</div>
+          <div class="summary-card-sub">{{ fmt(summaryData.totalSaved) }}/Mo gespart</div>
+          <div class="summary-card-sub" style="font-size:10px;opacity:0.7">Investitionen + Sparen + Spast Geld</div>
         </div>
         <div class="summary-card card-fun">
-          <div class="summary-card-label">Spass Geld</div>
+          <div class="summary-card-label">Spast Geld</div>
           <div class="summary-card-value" style="color:var(--color-fun)">{{ fmt(summaryData.totalFun) }}</div>
           <div class="summary-card-sub" v-for="(val, name) in summaryData.funMoney" :key="name">
             {{ name }}: {{ fmt(val) }}
+          </div>
+          <div style="margin-top:8px;border-top:1px solid rgba(255,255,255,0.1);padding-top:6px">
+            <div style="font-size:10px;opacity:0.7;margin-bottom:4px">Bereits abgezogen:</div>
+            <template v-for="(items, pName) in summaryData.deductionItems" :key="'ded-'+pName">
+              <div v-for="d in items" :key="'d-'+pName+'-'+d.name"
+                   style="font-size:10px;display:flex;justify-content:space-between;opacity:0.6;padding:1px 0">
+                <span>{{ pName }}: {{ d.name }}</span>
+                <span>{{ fmt(d.amount) }}</span>
+              </div>
+            </template>
           </div>
         </div>
       </div>

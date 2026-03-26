@@ -129,6 +129,46 @@ if (!hasInvestCol) {
   }
 }
 
+// Migration: add savings_amount column to persons (individual savings per person)
+const hasSavingsCol = db.prepare("PRAGMA table_info(persons)").all().some(c => c.name === 'savings_amount');
+if (!hasSavingsCol) {
+  db.exec('ALTER TABLE persons ADD COLUMN savings_amount REAL NOT NULL DEFAULT 0');
+
+  // Migrate existing "Sparen für große Dinge" budget item to per-person amounts
+  const savingsItem = db.prepare(`
+    SELECT b.* FROM budget_items b
+    JOIN categories c ON b.category_id = c.id
+    WHERE LOWER(c.name) LIKE '%sparen für große%'
+    LIMIT 1
+  `).get();
+
+  if (savingsItem) {
+    const persons = db.prepare('SELECT * FROM persons ORDER BY id').all();
+    const totalIncome = persons.reduce((s, p) => s + p.net_income + (p.second_income || 0), 0);
+
+    if (savingsItem.split_type === 'custom' && savingsItem.split_custom) {
+      const custom = JSON.parse(savingsItem.split_custom);
+      for (const p of persons) {
+        const pct = custom[p.name] || 0;
+        const amount = Math.round(savingsItem.amount_total * pct / 100 * 100) / 100;
+        db.prepare('UPDATE persons SET savings_amount = ? WHERE id = ?').run(amount, p.id);
+      }
+    } else {
+      for (const p of persons) {
+        const personIncome = p.net_income + (p.second_income || 0);
+        const ratio = totalIncome > 0 ? personIncome / totalIncome : 0;
+        const amount = Math.round(savingsItem.amount_total * ratio * 100) / 100;
+        db.prepare('UPDATE persons SET savings_amount = ? WHERE id = ?').run(amount, p.id);
+      }
+    }
+
+    // Remove the old savings budget item and category
+    db.prepare('DELETE FROM budget_items WHERE id = ?').run(savingsItem.id);
+    db.prepare('DELETE FROM categories WHERE id = ? AND (SELECT COUNT(*) FROM budget_items WHERE category_id = ?) = 0')
+      .run(savingsItem.category_id, savingsItem.category_id);
+  }
+}
+
 // Migration: add amount_type and amount_percent columns to budget_items
 const hasAmountType = db.prepare("PRAGMA table_info(budget_items)").all().some(c => c.name === 'amount_type');
 if (!hasAmountType) {

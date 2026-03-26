@@ -9,15 +9,16 @@ router.get('/', (req, res) => {
 });
 
 router.put('/:id', (req, res) => {
-  const { name, net_income, invest_amount, second_income } = req.body;
+  const { name, net_income, invest_amount, second_income, savings_amount } = req.body;
   db.prepare(`
     UPDATE persons SET
       name = COALESCE(?, name),
       net_income = COALESCE(?, net_income),
       invest_amount = COALESCE(?, invest_amount),
-      second_income = COALESCE(?, second_income)
+      second_income = COALESCE(?, second_income),
+      savings_amount = COALESCE(?, savings_amount)
     WHERE id = ?
-  `).run(name, net_income, invest_amount, second_income, req.params.id);
+  `).run(name, net_income, invest_amount, second_income, savings_amount, req.params.id);
   const person = db.prepare('SELECT * FROM persons WHERE id = ?').get(req.params.id);
   res.json(person);
 });

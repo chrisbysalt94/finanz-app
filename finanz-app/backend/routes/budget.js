@@ -51,11 +51,8 @@ router.get('/computed', (req, res) => {
   // Total income = net salary + second job for each person
   const totalIncome = persons.reduce((sum, p) => sum + p.net_income + (p.second_income || 0), 0);
 
-  // Adjusted income: total salary minus personal investments
-  // Proportional splits are based on adjusted income so that
-  // a partner who invests more pays less of the shared costs
+  // Investments are now treated as regular deductions (not pre-subtracted)
   const totalInvestments = persons.reduce((sum, p) => sum + (p.invest_amount || 0), 0);
-  const adjustedTotal = persons.reduce((sum, p) => sum + (p.net_income + (p.second_income || 0) - (p.invest_amount || 0)), 0);
 
   const categories = db.prepare('SELECT * FROM categories ORDER BY section, sort_order, id').all();
   const items = db.prepare(`
@@ -69,7 +66,7 @@ router.get('/computed', (req, res) => {
     // Resolve effective amount for percent-based items
     let effectiveTotal = item.amount_total;
     if (item.amount_type === 'percent' && item.amount_percent != null) {
-      effectiveTotal = Math.round(adjustedTotal * item.amount_percent / 100 * 100) / 100;
+      effectiveTotal = Math.round(totalIncome * item.amount_percent / 100 * 100) / 100;
     }
 
     const splits = {};
@@ -79,9 +76,9 @@ router.get('/computed', (req, res) => {
         const pct = custom[person.name] || 0;
         splits[person.name] = Math.round((effectiveTotal * pct / 100) * 100) / 100;
       } else {
-        // proportional based on adjusted income (salary + second job - investments)
-        const adjustedIncome = person.net_income + (person.second_income || 0) - (person.invest_amount || 0);
-        const ratio = adjustedTotal > 0 ? adjustedIncome / adjustedTotal : 0;
+        // proportional based on full income (salary + second job)
+        const personIncome = person.net_income + (person.second_income || 0);
+        const ratio = totalIncome > 0 ? personIncome / totalIncome : 0;
         splits[person.name] = Math.round((effectiveTotal * ratio) * 100) / 100;
       }
     }
@@ -197,7 +194,7 @@ router.get('/computed', (req, res) => {
   }));
 
   res.json({
-    persons, totalIncome, totalInvestments, adjustedTotal,
+    persons, totalIncome, totalInvestments,
     categories, items: computedItems, parentSums,
     transfers: computedTransfers, standingOrders: computedStandingOrders,
     unplanned: unplannedItems,
