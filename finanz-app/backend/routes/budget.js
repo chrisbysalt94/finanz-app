@@ -124,6 +124,8 @@ router.get('/computed', (req, res) => {
     if (item.section === 'income') continue;
     const parsed = parseTargetAccount(item.target_account);
     if (!parsed.bank) {
+      // Spastkonto-Posten gehen bewusst direkt vom Spaßgeld ab — nicht "unverplant"
+      if (parsed.spast) continue;
       // Item has no target account — unplanned
       if (item.amount_total > 0) {
         unplannedItems.push({
@@ -137,14 +139,17 @@ router.get('/computed', (req, res) => {
     // Gehälter kommen direkt auf die eigenen Revolut-Konten — Revolut-Posten
     // brauchen keine Überweisung mehr, sie laufen über die Pocket-Daueraufträge
     if (parsed.bank === 'Revolut') continue;
+    // "Getrennt -> X" ohne bekannte Bank: unter dem eigentlichen Ziel (X) führen,
+    // nicht unter dem Pseudo-Banknamen "Getrennt"
+    const targetKey = parsed.bank === 'Getrennt' && parsed.pocket ? parsed.pocket : parsed.bank;
     // Always use the actual category name so the breakdown shows the real purpose
     const breakdownLabel = item.category_name;
     for (const p of persons) {
       const amount = item.splits[p.name] || 0;
       if (amount <= 0) continue;
-      transferMap[p.name][parsed.bank] = (transferMap[p.name][parsed.bank] || 0) + amount;
-      if (!transferBreakdown[p.name][parsed.bank]) transferBreakdown[p.name][parsed.bank] = [];
-      transferBreakdown[p.name][parsed.bank].push({
+      transferMap[p.name][targetKey] = (transferMap[p.name][targetKey] || 0) + amount;
+      if (!transferBreakdown[p.name][targetKey]) transferBreakdown[p.name][targetKey] = [];
+      transferBreakdown[p.name][targetKey].push({
         category: breakdownLabel,
         amount: Math.round(amount * 100) / 100,
       });
@@ -258,7 +263,7 @@ function parseTargetAccount(target) {
 
   // Match Spastkonto - personal fun money deductions (no bank transfer needed)
   if (/spast/i.test(dest)) {
-    return { scope, bank: null, pocket: null };
+    return { scope, bank: null, pocket: null, spast: true };
   }
   // Match Revolut / Revolute
   if (/^Revolute?\b/i.test(dest)) {

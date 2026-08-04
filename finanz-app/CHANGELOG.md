@@ -1,3 +1,8 @@
+## 1.7.1
+
+- Fix: Spastkonto-Posten erscheinen nicht mehr faelschlich unter "Nicht verplant"
+- Fix: "Getrennt -> X"-Posten (z.B. Altersvorsorge) werden unter ihrem Zielnamen gefuehrt statt als "Getrennt"
+
 ## 1.7.0
 
 - Neues Konto-Modell: Gehalt & Spassgeld bleiben auf dem eigenen Revolut, Pockets liegen auf dem gemeinsamen Konto
