@@ -260,6 +260,14 @@ const SettingsView = {
       } else {
         item.split_custom = null;
       }
+      const newName = (item.category_name || '').trim();
+      if (newName) {
+        await fetch(`api/categories/${item.category_id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: newName }),
+        });
+      }
       await fetch(`api/budget/${item.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -627,7 +635,14 @@ const SettingsView = {
       <!-- Edit Modal -->
       <div class="modal-backdrop" v-if="editingItem" @click.self="editingItem = null">
         <div class="modal">
-          <div class="modal-title">{{ editingItem.category_name }}</div>
+          <div class="modal-title">Posten bearbeiten</div>
+
+          <div class="field-group mb-8">
+            <div class="field-label">Name</div>
+            <input class="setting-input" style="width:100%;text-align:left" type="text"
+                   v-model="editingItem.category_name"
+                   placeholder="z.B. Fitness">
+          </div>
 
           <!-- Amount type toggle -->
           <div class="field-group mb-8">

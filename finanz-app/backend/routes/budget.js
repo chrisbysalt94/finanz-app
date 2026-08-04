@@ -134,6 +134,9 @@ router.get('/computed', (req, res) => {
       }
       continue;
     }
+    // Gehälter kommen direkt auf die eigenen Revolut-Konten — Revolut-Posten
+    // brauchen keine Überweisung mehr, sie laufen über die Pocket-Daueraufträge
+    if (parsed.bank === 'Revolut') continue;
     // Always use the actual category name so the breakdown shows the real purpose
     const breakdownLabel = item.category_name;
     for (const p of persons) {
@@ -160,19 +163,6 @@ router.get('/computed', (req, res) => {
     }
   }
 
-  // Add savings amounts to Revolut Sparkonto transfers
-  for (const p of persons) {
-    if ((p.savings_amount || 0) > 0) {
-      const savingsBank = 'Revolut';
-      transferMap[p.name][savingsBank] = (transferMap[p.name][savingsBank] || 0) + p.savings_amount;
-      if (!transferBreakdown[p.name][savingsBank]) transferBreakdown[p.name][savingsBank] = [];
-      transferBreakdown[p.name][savingsBank].push({
-        category: `Sparkonto ${p.name}`,
-        amount: Math.round(p.savings_amount * 100) / 100,
-      });
-    }
-  }
-
   const computedTransfers = [];
   for (const p of persons) {
     for (const [bank, amount] of Object.entries(transferMap[p.name])) {
@@ -190,71 +180,104 @@ router.get('/computed', (req, res) => {
     }
   }
 
-  // === Computed Standing Orders (Revolut pockets) ===
-  const pocketTotals = {};
+  // === Computed Standing Orders: pro Person je Pocket ===
+  // Gehalt + Spaßgeld bleiben auf dem eigenen Revolut, die Pockets liegen auf
+  // dem gemeinsamen Konto — jede Person überweist ihren Anteil pro Pocket selbst.
+  const pocketMap = {};
+  for (const p of persons) pocketMap[p.name] = {};
+
   for (const item of computedItems) {
     if (item.section === 'income') continue;
     const parsed = parseTargetAccount(item.target_account);
-    if (!parsed.bank || parsed.bank !== 'Revolut') continue;
+    if (parsed.bank !== 'Revolut') continue;
     const pocket = parsed.pocket || item.category_name;
-    pocketTotals[pocket] = (pocketTotals[pocket] || 0) + item.amount_total;
-  }
-
-  // Add savings to Revolut pockets (Sparkonten)
-  for (const p of persons) {
-    if ((p.savings_amount || 0) > 0) {
-      const pocketName = `Sparkonto ${p.name}`;
-      pocketTotals[pocketName] = (pocketTotals[pocketName] || 0) + p.savings_amount;
+    for (const p of persons) {
+      const amount = item.splits[p.name] || 0;
+      if (amount <= 0) continue;
+      if (!pocketMap[p.name][pocket]) {
+        pocketMap[p.name][pocket] = { amount: 0, scope: parsed.scope, breakdown: [] };
+      }
+      pocketMap[p.name][pocket].amount += amount;
+      pocketMap[p.name][pocket].breakdown.push({
+        category: item.category_name,
+        amount: Math.round(amount * 100) / 100,
+      });
     }
   }
 
-  const computedStandingOrders = Object.entries(pocketTotals).map(([category, amount]) => ({
-    bank: 'Revolut',
-    category,
-    amount: Math.round(amount * 100) / 100,
-  }));
+  // Sparbetrag pro Person: eigenes Sparkonto-Pocket
+  for (const p of persons) {
+    if ((p.savings_amount || 0) > 0) {
+      pocketMap[p.name]['Sparkonto'] = {
+        amount: p.savings_amount,
+        scope: 'getrennt',
+        breakdown: [{ category: `Sparkonto ${p.name}`, amount: Math.round(p.savings_amount * 100) / 100 }],
+      };
+    }
+  }
+
+  const computedStandingOrders = [];
+  for (const p of persons) {
+    for (const [pocket, data] of Object.entries(pocketMap[p.name])) {
+      computedStandingOrders.push({
+        person_name: p.name,
+        person_id: p.id,
+        pocket,
+        scope: data.scope,
+        amount: Math.round(data.amount * 100) / 100,
+        breakdown: data.breakdown.sort((a, b) => a.category.localeCompare(b.category, 'de')),
+      });
+    }
+  }
+  computedStandingOrders.sort((a, b) =>
+    a.person_id - b.person_id || b.amount - a.amount);
+
+  const jointRevolutIban = accounts.find(a => !a.person_id && a.bank === 'Revolut')?.iban || null;
 
   res.json({
     persons, totalIncome, totalInvestments,
     categories, items: computedItems, parentSums,
     transfers: computedTransfers, standingOrders: computedStandingOrders,
+    jointRevolutIban,
     unplanned: unplannedItems,
   });
 });
 
 // Helper: parse target_account like "Zusammen -> Revolut Wohnung", "Getrennt -> Altersvorsorge", or just "Revolut Urlaub"
 function parseTargetAccount(target) {
-  if (!target) return { bank: null, pocket: null };
+  if (!target) return { scope: 'zusammen', bank: null, pocket: null };
   let dest = target.trim();
+  let scope = 'zusammen';
 
-  // Strip "Zusammen -> " or "Getrennt -> " prefix
-  const arrowMatch = dest.match(/^(?:Zusammen|Getrennt)\s*->\s*(.+)$/i);
+  // Strip "Zusammen -> " or "Getrennt -> " prefix, keep the scope
+  const arrowMatch = dest.match(/^(Zusammen|Getrennt)\s*(?:->|→)\s*(.+)$/i);
   if (arrowMatch) {
-    dest = arrowMatch[1].trim();
+    scope = arrowMatch[1].toLowerCase();
+    dest = arrowMatch[2].trim();
   }
 
   // Match Spastkonto - personal fun money deductions (no bank transfer needed)
   if (/spast/i.test(dest)) {
-    return { bank: null, pocket: null };
+    return { scope, bank: null, pocket: null };
   }
   // Match Revolut / Revolute
   if (/^Revolute?\b/i.test(dest)) {
     const pocket = dest.replace(/^Revolute?\s*/i, '').trim() || null;
-    return { bank: 'Revolut', pocket };
+    return { scope, bank: 'Revolut', pocket };
   }
   // Match TradeRepublic
   if (/^TradeRepublic/i.test(dest)) {
-    return { bank: 'TradeRepublic', pocket: null };
+    return { scope, bank: 'TradeRepublic', pocket: null };
   }
   // Match MVB, Barclay or other banks
   if (/MVB|Barclay/i.test(dest)) {
-    return { bank: 'Revolut', pocket: dest };
+    return { scope, bank: 'Revolut', pocket: dest };
   }
   // For "Getrennt -> Altersvorsorge" etc. - personal/separate items
   if (arrowMatch) {
-    return { bank: 'Getrennt', pocket: dest };
+    return { scope, bank: 'Getrennt', pocket: dest };
   }
-  return { bank: null, pocket: null };
+  return { scope, bank: null, pocket: null };
 }
 
 export default router;

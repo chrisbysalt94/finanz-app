@@ -8,7 +8,6 @@ const app = createApp({
     const currentView = computed(() => {
       const views = {
         'dashboard': 'dashboard-view',
-        'transfers': 'transfers-view',
         'standing-orders': 'standing-orders-view',
         'settings': 'settings-view',
       };
@@ -32,7 +31,6 @@ const app = createApp({
 
 // Register components
 app.component('dashboard-view', DashboardView);
-app.component('transfers-view', TransfersView);
 app.component('standing-orders-view', StandingOrdersView);
 app.component('settings-view', SettingsView);
 

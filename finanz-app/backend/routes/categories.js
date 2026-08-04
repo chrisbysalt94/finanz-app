@@ -27,7 +27,7 @@ router.put('/:id', (req, res) => {
       sort_order = COALESCE(?, sort_order),
       section = COALESCE(?, section)
     WHERE id = ?
-  `).run(name, parent_id, color, sort_order, section, req.params.id);
+  `).run(name ?? null, parent_id ?? null, color ?? null, sort_order ?? null, section ?? null, req.params.id);
   const cat = db.prepare('SELECT * FROM categories WHERE id = ?').get(req.params.id);
   res.json(cat);
 });
